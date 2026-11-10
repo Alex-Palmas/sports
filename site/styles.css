@@ -279,7 +279,7 @@ table.shop td.top{font-weight:800;color:var(--hit)}
   .sports button{padding:8px 10px;min-height:38px}
   body:not([data-view="props"]):not([data-view=""]) .sports{visibility:hidden}
   /* bottom tab bar */
-  .views{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(6,1fr);gap:0;
+  .views{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(4,1fr);gap:0;
     background:var(--panel);border-top:1px solid var(--line);padding:4px max(6px,env(safe-area-inset-left,0px)) calc(4px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-right,0px))}
   .view-btn,.view-btn[data-view="props"]{display:flex;flex-direction:column;justify-content:center;gap:2px;min-height:52px;border:0;background:none;border-radius:10px;font-size:11px;font-weight:600;padding:4px 2px}
   .view-btn svg{width:22px;height:22px}
@@ -526,3 +526,24 @@ tbody tr:hover{background:var(--panel2)}
   .view-btn,.view-btn[data-view="props"]{font-size:10px;padding:4px 0}
   .view-btn svg{width:20px;height:20px}
 }
+
+/* ---------- Testing tab: sub-navigation ---------- */
+.testing-head{max-width:1100px;width:100%;margin:0 auto;padding:20px 20px 0;display:flex;flex-direction:column;gap:12px}
+.testing-title h1{margin:0 0 4px;font-size:24px}
+.testing-title p{margin:0;max-width:640px}
+.subnav{display:flex;gap:4px;padding:4px;background:var(--panel2);border-radius:12px;width:max-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.subnav::-webkit-scrollbar{display:none}
+.subnav button{border:0;background:none;color:var(--muted);font:600 14px var(--font-body);padding:8px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}
+.subnav button:hover{color:var(--text)}
+.subnav button.active{background:var(--panel);color:var(--accent);box-shadow:var(--shadow)}
+.subnav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* the testing sections sit under the shared header, so their own top padding shrinks */
+#testNav:not([hidden]) ~ .arb-view{padding-top:12px}
+@media (max-width:760px){
+  .testing-head{padding:12px 12px 0}
+  .testing-title p{display:none}
+  .subnav{width:100%}
+  .subnav button{flex:1;font-size:13px;padding:8px 6px}
+}
+.subnav .short{display:none}
+@media (max-width:760px){ .subnav .long{display:none} .subnav .short{display:inline} }

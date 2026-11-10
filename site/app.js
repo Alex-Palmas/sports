@@ -437,7 +437,13 @@
     $("#edgeView").hidden = v !== "edge";
     $("#betsView").hidden = v !== "bets";
     document.querySelector(".layout").hidden = v !== "props";
-    document.querySelectorAll("#viewNav .view-btn").forEach(b => { const on = b.dataset.view === v; b.classList.toggle("active", on); b.setAttribute("aria-current", on ? "page" : "false"); });
+    // Arbitrage, the latency study and the crypto bot live under one "Testing" tab
+    const testing = ["arb", "lat", "crypto"].includes(v);
+    if (testing) { state.lastTest = v; store.set("lastTest", v); }
+    $("#testNav").hidden = !testing;
+    document.querySelectorAll("#testNav [data-test]").forEach(b => { const on = b.dataset.test === v; b.classList.toggle("active", on); b.setAttribute("aria-selected", on); });
+    const navKey = testing ? "testing" : v;
+    document.querySelectorAll("#viewNav .view-btn").forEach(b => { const on = b.dataset.view === navKey; b.classList.toggle("active", on); b.setAttribute("aria-current", on ? "page" : "false"); });
     document.body.dataset.view = v;
     if (v !== "props") document.querySelectorAll("#sportTabs button").forEach(b => b.classList.remove("active"));
     if (v === "arb") renderArbs();
@@ -449,7 +455,8 @@
     window.scrollTo(0, 0);
     try { if (location.hash.slice(1) !== (v === "props" ? "" : v)) history.replaceState(null, "", v === "props" ? location.pathname : "#" + v); } catch {}
   }
-  document.querySelectorAll("#viewNav .view-btn").forEach(b => b.onclick = () => setView(b.dataset.view));
+  document.querySelectorAll("#viewNav .view-btn").forEach(b => b.onclick = () => setView(b.dataset.view === "testing" ? (state.lastTest || store.get("lastTest", "arb")) : b.dataset.view));
+  document.querySelectorAll("#testNav [data-test]").forEach(b => b.onclick = () => setView(b.dataset.test));
   // shared helpers for the Edge Board and My Bets views
   const api = {
     avatar,
@@ -473,7 +480,14 @@
   $("#sportTabs").addEventListener("click", () => { if (state.view && state.view !== "props") setView("props"); }, true);
   // open a section from the link (#arb, #lat, #crypto)
   const startView = location.hash.slice(1);
-  if (["arb", "lat", "crypto", "edge", "bets"].includes(startView)) setTimeout(() => setView(startView), 0);
+  if (["arb", "lat", "crypto", "edge", "bets", "testing"].includes(startView)) setTimeout(() => setView(startView === "testing" ? store.get("lastTest", "arb") : startView), 0);
+  // follow links to a section while the page is open (#edge, #bets, #arb, #lat, #crypto)
+  window.addEventListener("hashchange", () => {
+    const h = location.hash.slice(1);
+    if (["arb", "lat", "crypto", "edge", "bets"].includes(h) && h !== state.view) setView(h);
+    else if (h === "testing") setView(state.lastTest || store.get("lastTest", "arb"));
+    else if (!h && state.view !== "props") setView("props");
+  });
 
   const foot = document.querySelector(".foot");
   if (LIVE) {
