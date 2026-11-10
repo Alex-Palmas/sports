@@ -3,6 +3,14 @@
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const odds = a => a == null ? "—" : (a > 0 ? "+" : "") + a;
   const pct = x => x == null ? "—" : Math.round(x * 100) + "%";
+  /** "Tonight 9:00 PM" / "Tomorrow 9:00 PM" / "Thu 9:00 PM" in the viewer's time zone. */
+  function when(iso) {
+    const d = new Date(iso), t = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const day = x => new Date(x).toDateString(), now = Date.now();
+    if (day(d) === day(now)) return `Today ${t}`;
+    if (day(d) === day(now + 86400e3)) return `Tomorrow ${t}`;
+    return `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
+  }
   const evTxt = e => (e >= 0 ? "+" : "") + (e * 100).toFixed(1) + "%";
   let opts = { league: "all", minEv: 0.02, minConf: "any", marketOnly: true, q: "", show: 60 };
   const RANK = { Low: 0, Medium: 1, High: 2 }, MIN = { any: 0, medium: 1, high: 2 };
@@ -85,7 +93,7 @@
         return `<div class="card edge-row" role="button" tabindex="0" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">
           <span class="er-rank">${i + 1}</span>
           ${api.avatar(p, 44, "", sp)}
-          <span class="er-main"><b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}</span>
+          <span class="er-main"><b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}${p.gameDate ? ` · ${esc(when(p.gameDate))}` : ""}</span>
             <span class="er-prop">${b ? `${b.side === "over" ? "Over" : "Under"} ${b.line}` : `Line ${r.line}`} ${esc(label)} <span class="pl-sub">· projection <b>${r.proj.mean}</b></span></span>
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
           <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}${b.book === "Kalshi" && (b.href || b.tk) && window.PropKalshi ? window.PropKalshi.link(b, "Open in Kalshi", "kalshi-link er-link") : ""}`

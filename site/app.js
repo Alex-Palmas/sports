@@ -12,7 +12,7 @@
   const state = {
     sport: store.get("sport", "nba"),
     stat: "all", side: "over", sort: "hit", q: "",
-    sel: null, range: "L10", lineAdj: 0, game: null,
+    sel: null, range: "L10", lineAdj: 0, game: null, day: null,
   };
   if (!DATA.sports[state.sport] || !DATA.sports[state.sport].players.length) state.sport = Object.keys(DATA.sports).find(k => DATA.sports[k].players.length) || "nba";
 
@@ -58,6 +58,13 @@
   };
   /** One key per game: "AWAY@HOME|start". */
   const gameKey = p => `${p.home ? p.opp : p.team}@${p.home ? p.team : p.opp}|${p.gameDate || ""}`;
+  /** Local calendar day of a game (YYYY-MM-DD in the viewer's time zone). */
+  const dayKey = iso => { if (!iso) return ""; const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  /** The days that have games, earliest first; the default is the first day whose games aren't over. */
+  const gameDays = () => [...new Set(sport().players.map(p => dayKey(p.gameDate)).filter(Boolean))].sort();
+  const activeDay = () => { const ds = gameDays(); if (state.day && ds.includes(state.day)) return state.day;
+    const live = sport().players.filter(p => p.gameDate && Date.parse(p.gameDate) > Date.now() - 4 * 3600e3).map(p => dayKey(p.gameDate)).sort();
+    return live[0] || ds[0] || null; };
   const curSeason = p => p.logs.filter(l => l.season === p.logs[0]?.season);
   const isProj = (p, k) => p.lineSource && p.lineSource[k] === "proj";
   // ---- line shopping
@@ -100,7 +107,7 @@
     const s = sport(); const out = [];
     for (const p of s.players) for (const k of Object.keys(p.lines)) {
       if (state.stat !== "all" && state.stat !== k) continue;
-      if (state.game && gameKey(p) !== state.game) continue;
+      if (state.game ? gameKey(p) !== state.game : (activeDay() && dayKey(p.gameDate) !== activeDay())) continue;
       const line = p.lines[k];
       out.push({ p, k, line,
         l5: rate(p.logs.slice(0, 5), k, line, state.side),
@@ -126,7 +133,7 @@
       if (!s.players.length) b.classList.add("off");
       if (!s.players.length) b.title = s.note || "No upcoming games";
       b.setAttribute("role", "tab");
-      b.onclick = () => { state.sport = k; state.stat = "all"; state.sel = null; state.game = null; store.set("sport", k); renderAll(); };
+      b.onclick = () => { state.sport = k; state.stat = "all"; state.sel = null; state.game = null; state.day = null; store.set("sport", k); renderAll(); };
       nav.append(b);
     }
     const sf = $("#statFilter"); sf.innerHTML = `<option value="all">All props</option>` + sport().stats.map(s => `<option value="${s.key}">${esc(s.label)}</option>`).join("");
@@ -420,29 +427,28 @@
     return out;
   }
 
-  /** The day's matchups across the top: tap one to see only that game's props. */
+  /** The day's matchups across the top: pick a day, tap a game to see only that game's props. */
   function renderGames() {
     const strip = $("#gamesStrip"), s = sport();
     const games = new Map();
     for (const p of s.players) {
       const key = gameKey(p);
       let g = games.get(key);
-      if (!g) { const home = p.home ? p.team : p.opp, away = p.home ? p.opp : p.team; g = { key, home, away, date: p.gameDate, odds: p.game, props: 0 }; games.set(key, g); }
+      if (!g) { const home = p.home ? p.team : p.opp, away = p.home ? p.opp : p.team; g = { key, home, away, date: p.gameDate, day: dayKey(p.gameDate), odds: p.game, props: 0 }; games.set(key, g); }
       g.props += Object.keys(p.lines || {}).length;
       if (p.home && p.game) g.odds = p.game;
     }
-    const list = [...games.values()].sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.home.localeCompare(b.home));
     if (state.game && !games.has(state.game)) state.game = null;
-    if (!list.length) { strip.innerHTML = ""; strip.hidden = true; return; }
+    const days = gameDays(), day = activeDay();
+    const list = [...games.values()].filter(g => g.day === day).sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.home.localeCompare(b.home));
+    if (!games.size) { strip.innerHTML = ""; strip.hidden = true; return; }
     strip.hidden = false;
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const dayLabel = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); const n = Math.round((x - today) / 86400e3);
-      return n === 0 ? "Today" : n === 1 ? "Tomorrow" : n === -1 ? "Yesterday" : new Date(d).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }); };
+    const today = dayKey(new Date().toISOString()), tomorrow = dayKey(new Date(Date.now() + 86400e3).toISOString());
+    const dayLabel = d => d === today ? "Today" : d === tomorrow ? "Tomorrow" : new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
     const now = Date.now();
-    let html = `<button class="gs-all${state.game ? "" : " active"}" data-game="" aria-pressed="${!state.game}"><b>All games</b><span>${list.length} game${list.length === 1 ? "" : "s"}</span></button>`, lastDay = null;
+    let html = days.length > 1 ? `<div class="gs-days" role="tablist" aria-label="Day">${days.map(d => `<button class="gs-daybtn${d === day ? " active" : ""}" role="tab" aria-selected="${d === day}" data-day="${d}">${esc(dayLabel(d))}<span>${[...games.values()].filter(g => g.day === d).length} games</span></button>`).join("")}</div>` : `<span class="gs-day">${esc(day ? dayLabel(day) : "")}</span>`;
+    html += `<button class="gs-all${state.game ? "" : " active"}" data-game="" aria-pressed="${!state.game}"><b>All games</b><span>${list.length} game${list.length === 1 ? "" : "s"}</span></button>`;
     for (const g of list) {
-      const day = g.date ? dayLabel(g.date) : "";
-      if (day !== lastDay) { html += `<span class="gs-day">${esc(day)}</span>`; lastDay = day; }
       const t = g.date ? new Date(g.date) : null, live = t && t.getTime() <= now && now - t.getTime() < 4 * 3600e3;
       const line = g.odds ? [g.odds.details, g.odds.total ? `O/U ${g.odds.total}` : ""].filter(Boolean).join(" · ") : "";
       html += `<button class="gs-game${state.game === g.key ? " active" : ""}" data-game="${esc(g.key)}" aria-pressed="${state.game === g.key}" title="${esc(g.away)} at ${esc(g.home)}">
@@ -450,16 +456,17 @@
         <span class="gs-meta">${live ? `<span class="gs-live">LIVE</span>` : t ? esc(t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })) : ""}${line ? ` · ${esc(line)}` : ""}</span></button>`;
     }
     strip.innerHTML = html;
-    strip.querySelectorAll("button[data-game]").forEach(b => b.onclick = () => {
-      const k = b.dataset.game || null;
-      state.game = state.game === k ? null : k;
-      // keep the open prop if it's in this game, otherwise show the game's list
-      if (state.game && state.sel) { const sp = s.players.find(x => x.id === state.sel.id); if (!sp || gameKey(sp) !== state.game) { state.sel = null; document.querySelector(".layout").classList.remove("show-detail"); } }
+    const after = () => {
       if (state.view && state.view !== "props") setView("props");
+      // keep the open prop only if it's still in the list
+      if (state.sel) { const sp = s.players.find(x => x.id === state.sel.id); const ok = sp && (state.game ? gameKey(sp) === state.game : dayKey(sp.gameDate) === activeDay());
+        if (!ok) { state.sel = null; document.querySelector(".layout").classList.remove("show-detail"); } }
       renderGames(); renderList(); if (!state.sel) renderDetail();
       if (window.innerWidth <= 900) document.querySelector(".layout").classList.remove("show-detail");
-    });
-    strip.querySelector(".active")?.scrollIntoView({ block: "nearest", inline: "center" });
+    };
+    strip.querySelectorAll("button[data-day]").forEach(b => b.onclick = () => { state.day = b.dataset.day; state.game = null; after(); });
+    strip.querySelectorAll("button[data-game]").forEach(b => b.onclick = () => { const k = b.dataset.game || null; state.game = state.game === k ? null : k; after(); });
+    strip.querySelector(".gs-game.active")?.scrollIntoView({ block: "nearest", inline: "center" });
   }
 
   function renderAll() { renderTabs(); renderGames(); renderList(); renderDetail(); }
