@@ -4,11 +4,13 @@
  *
  *   node scripts/set-password.mjs                 # generates a strong password and prints it once
  *   node scripts/set-password.mjs 'my passphrase' # or choose one (10+ characters)
+ *   node scripts/set-password.mjs --lock-all      # keep the password, but lock every device now
  *
  * Only a salted PBKDF2-SHA256 hash (310,000 iterations) is stored, never the password. Commit and push
- * site/access.json afterwards; devices that were already unlocked stay unlocked until they press Lock.
+ * site/access.json afterwards. Every device re-checks on each page load, so a new password or --lock-all
+ * locks everyone out (until they enter the password again) as soon as the deploy is live.
  */
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { randomBytes, pbkdf2Sync } from "node:crypto";
 
 const FILE = process.env.ACCESS_FILE || "site/access.json", ITER = 310000;
@@ -21,6 +23,11 @@ const randomPassword = () => { const A = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQ
   return Array.from({ length: 4 }, (_, g) => Array.from({ length: 4 }, (_, i) => A[b[g * 4 + i] % A.length]).join("")).join("-"); };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
+  if (process.argv[2] === "--lock-all") {
+    if (!existsSync(FILE)) { console.error(`no ${FILE} yet: set a password first`); process.exit(1); }
+    const a = JSON.parse(readFileSync(FILE, "utf8")); a.epoch = (a.epoch || 0) + 1; a.locked = new Date().toISOString();
+    writeFileSync(FILE, JSON.stringify(a, null, 1) + "\n"); console.log(`locked every device (epoch ${a.epoch}); commit and push ${FILE}`); process.exit(0);
+  }
   const given = process.argv[2];
   if (given && given.length < 10) { console.error("password must be at least 10 characters"); process.exit(1); }
   const password = given || randomPassword();
