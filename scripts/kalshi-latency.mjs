@@ -1,60 +1,137 @@
 #!/usr/bin/env node
 /**
- * Kalshi latency study (NBA).
+ * Kalshi latency study: NBA and NFL.
  *
- * While NBA games are live, polls a play-by-play feed and Kalshi's public market data
- * about once a second, then measures, for every play that settles a Kalshi player-prop
- * market (e.g. a basket that takes a player from 19 to 21 points settles "20+ points"
- * as YES):
+ * While games are live, follows ESPN's play-by-play and EVERY Kalshi market for each game
+ * (moneyline, spread, total, quarters/halves, player props, specials) and records how the
+ * prices move. Two analyses come out of it:
  *
- *   play time   – when it happened on the court (the feed's wallclock stamp)
- *   feed delay  – when our feed delivered it, minus the play time
- *   Kalshi time – when Kalshi's best bid first reached 90¢ (the market "knew"), minus the play time
- *   stale ask   – what Kalshi was still asking for YES when our feed delivered the play,
- *                 and the profit per contract after fees if you had bought it then
+ * 1. Prop latency. For every play that settles a Kalshi player prop (a basket that takes a
+ *    player past 20 points; a catch that takes a receiver past 60 yards):
+ *      play time   – when it happened (ESPN's wallclock stamp)
+ *      feed delay  – when the feed delivered it, minus the play time
+ *      Kalshi time – when Kalshi's YES bid first reached 90¢ (or it closed the market)
+ *      stale ask   – what Kalshi still asked when the feed delivered the play, and the
+ *                    after-fee profit per contract if bought then
+ *      trajectory  – the implied probability from −10s to +2 min: total move, when it started,
+ *                    when it was 50%/90% done, price steps, contracts traded, and how much
+ *                    of the move was left when the feed delivered the play
  *
- * plus, for every scoring play, how long Kalshi's game-winner market took to move.
- * Results go to site/latency/<date>.json and site/latency/index.json for the app's
- * "Kalshi Latency Study" tab.
+ * 2. Game tracker. For each game, every Kalshi market's pre-game price, final price, range,
+ *    contracts traded and number of moves, how fast each market type reprices after key plays
+ *    (scores and, in the NFL, turnovers), and the win-probability path.
  *
- * Feeds:
- *   FEED=espn (default) ESPN's live play-by-play. Works from cloud servers (GitHub Actions).
- *   FEED=nba            NBA's official CDN play-by-play. Usually faster, but blocks cloud
- *                       servers, so run it from a home connection.
- * Env: POLL_MS (default 1000), MAX_MINUTES (default 340), OUT_DIR (default site/latency).
- * This only reads public data. It never places orders.
+ * Kalshi is polled by series (one request covers that market type for every game), with the
+ * main markets (moneyline, spread, total, core props) about once a second and the rest in
+ * rotation, within a request budget. Each game's markets are found from its moneyline event
+ * (one request per league), not by scanning all of Kalshi.
+ *
+ * Output: site/latency/<date>-<HHMM>-<feed>.json and site/latency/index.json for the app's
+ * "Kalshi Latency Study" tab, plus site/latency/live.json every LIVE_EVERY seconds while games
+ * are on (the workflow publishes it for the live view).
+ *
+ * Env: LEAGUES (default "nba,nfl"), FEED (espn | nba: the NBA's own CDN, home connection only),
+ *      POLL_MS (1000), REQS_PER_SEC (4), MAX_MINUTES (340), LIVE_EVERY (120), OUT_DIR (site/latency).
+ * Read-only: it never places orders.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 const FEED = process.env.FEED || "espn";
 const POLL_MS = +(process.env.POLL_MS || 1000);
+const REQS_PER_SEC = +(process.env.REQS_PER_SEC || 4);
 const MAX_MINUTES = +(process.env.MAX_MINUTES || 340);
+const LIVE_EVERY = +(process.env.LIVE_EVERY || 120);
 const OUT_DIR = process.env.OUT_DIR || "site/latency";
+const LEAGUE_KEYS = (process.env.LEAGUES || "nba,nfl").split(",").map(s => s.trim()).filter(Boolean);
 const KALSHI = "https://api.elections.kalshi.com/trade-api/v2";
-const ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba";
+const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
 const NBA_CDN = "https://cdn.nba.com/static/json/liveData";
 
-// Kalshi series → stat tracked from the play-by-play
-export const PROP_SERIES = { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3" };
-const GAME_SERIES = "KXNBAGAME";
 const REACT_BID = 0.90;            // "Kalshi has adjusted" = best YES bid ≥ 90¢ on a market that just settled YES
 const fee = p => Math.ceil(0.07 * p * (1 - p) * 100) / 100;
 
-// ESPN team abbreviations → NBA tricodes (used in Kalshi event tickers)
-const TRI = { GS: "GSW", NO: "NOP", NY: "NYK", SA: "SAS", UTAH: "UTA", WSH: "WAS" };
-export const tricode = a => TRI[a] || a;
+// Every per-game Kalshi series for each league (from Kalshi's event list). `fast` series are
+// polled about once a second; the rest rotate within the request budget.
+export const LEAGUES = {
+  nba: {
+    name: "NBA", espn: "basketball/nba", game: "KXNBAGAME",
+    fast: ["KXNBAGAME", "KXNBASPREAD", "KXNBATOTAL", "KXNBAPTS"],
+    medium: ["KXNBAREB", "KXNBAAST", "KXNBA3PT", "KXNBAPRA"],
+    slow: ["KXNBA1Q", "KXNBA2Q", "KXNBA3Q", "KXNBA4Q", "KXNBA1H", "KXNBA2H", "KXNBAOT", "KXNBA1QSPREAD", "KXNBA2QSPREAD", "KXNBA3QSPREAD", "KXNBA4QSPREAD",
+      "KXNBA1HSPREAD", "KXNBA2HSPREAD", "KXNBA1QTOTAL", "KXNBA2QTOTAL", "KXNBA3QTOTAL", "KXNBA4QTOTAL", "KXNBA1HTOTAL", "KXNBA2HTOTAL", "KXNBATEAMTOTAL",
+      "KXNBA1HTEAMTOTAL", "KXNBAWINMARGIN", "KXNBARACE", "KXNBASTL", "KXNBABLK", "KXNBASTOCK", "KXNBA2D", "KXNBA3D", "KXNBAPTSLEADER",
+      "KXNBAPTSPROT", "KXNBAREBPROT", "KXNBAASTPROT", "KXNBA3PTPROT", "KXNBAPRAPROT"],
+    props: { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3" },
+    // ESPN abbreviation → Kalshi code
+    alias: { GS: "GSW", NO: "NOP", NY: "NYK", SA: "SAS", UTAH: "UTA", WSH: "WAS" },
+  },
+  nfl: {
+    name: "NFL", espn: "football/nfl", game: "KXNFLGAME",
+    fast: ["KXNFLGAME", "KXNFLSPREAD", "KXNFLTOTAL", "KXNFLTD"],
+    medium: ["KXNFLPASSYDS", "KXNFLRSHYDS", "KXNFLRECYDS", "KXNFLREC"],
+    slow: ["KXNFLTEAMTOTAL", "KXNFL1HTEAMTOTAL", "KXNFL1Q", "KXNFL2Q", "KXNFL3Q", "KXNFL4Q", "KXNFL1H", "KXNFL2H", "KXNFLOT", "KXNFLTIE",
+      "KXNFL1QSPREAD", "KXNFL2QSPREAD", "KXNFL3QSPREAD", "KXNFL4QSPREAD", "KXNFL1HSPREAD", "KXNFL2HSPREAD", "KXNFL1QTOTAL", "KXNFL2QTOTAL", "KXNFL3QTOTAL",
+      "KXNFL4QTOTAL", "KXNFL1HTOTAL", "KXNFL2HTOTAL", "KXNFL1HFT", "KXNFLWINMARGIN", "KXNFLRACE", "KXNFLBOTH", "KXNFL1QBTTS", "KXNFL2QBTTS", "KXNFL3QBTTS",
+      "KXNFL4QBTTS", "KXNFLEQBTTS", "KXNFLFIRSTTD", "KXNFLFIRSTTDTEAM", "KXNFLTEAMFIRSTTD", "KXNFLFG", "KXNFLSFTY", "KXNFLDSTTD", "KXNFLTEAMSACK",
+      "KXNFLTEAMYDS", "KXNFLPASSTDS", "KXNFLPASSINT", "KXNFLPASSCOMP", "KXNFLPASSATT", "KXNFLRSHATT", "KXNFLRRYDS", "KXNFLLONGRSH", "KXNFLLONGREC",
+      "KXNFLFFPTS", "KXNFLFFPTSLADDER", "KXNFLLADDERRECYDS", "KXNFLLADDERREC", "KXNFLLADDERRSHYDS", "KXNFLESCALATORRSHYDS", "KXNFLESCALATORRECYDS",
+      "KXNFLESCALATORREC", "KXNFLPASSYDSPROT", "KXNFLRSHYDSPROT", "KXNFLRECYDSPROT", "KXNFLRECPROT", "KXNFLTDPROT", "KXNFLPASSTDSPROT", "KXNFLDELAY"],
+    props: { KXNFLPASSYDS: "pass_yds", KXNFLRSHYDS: "rush_yds", KXNFLRECYDS: "rec_yds", KXNFLREC: "rec", KXNFLTD: "td" },
+    alias: { WSH: "WAS", JAX: "JAC" },
+  },
+};
+/** Display group for a series, used to compare market types. */
+export function seriesGroup(series, league) {
+  const s = series.replace(/^KXNBA|^KXNFL/, "");
+  if (s === "GAME") return "Moneyline";
+  if (s === "SPREAD" || s === "WINMARGIN") return "Spread & margin";
+  if (s === "TOTAL" || s === "TEAMTOTAL") return "Totals";
+  if (/^[1-4][QH]|^OT$|^TIE$|1HFT|1HTEAMTOTAL/.test(s)) return "Quarters & halves";
+  if (LEAGUES[league]?.props["KX" + league.toUpperCase() + s] || /PROT$|PRA|STL|BLK|STOCK|PTSLEADER|2D|3D|PASS|RSH|REC|RRYDS|LONG|FFPTS|LADDER|ESCALATOR|^TD$/.test(s)) return "Player props";
+  return "Game specials";
+}
+/** Kalshi team code for an ESPN abbreviation. */
+export const kalshiCode = (league, a) => LEAGUES[league]?.alias[a] || a;
+/** Back-compat for the NBA-only helpers/tests. */
+export const tricode = a => LEAGUES.nba.alias[a] || a;
+export const PROP_SERIES = LEAGUES.nba.props;
 export const normName = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\b(jr|sr|ii|iii|iv)\b\.?/g, "").replace(/[^a-z]/g, "");
+const etDate = iso => Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "2-digit", month: "short", day: "2-digit" }).formatToParts(new Date(iso)).map(x => [x.type, x.value]));
 /** Kalshi event suffix for a game, e.g. 26NOV10BOSPHI (date is the US-Eastern game date). */
-export function eventSuffix(startIso, awayAbbr, homeAbbr) {
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "2-digit", month: "short", day: "2-digit" }).formatToParts(new Date(startIso)).map(x => [x.type, x.value]));
-  return `${p.year}${p.month.toUpperCase()}${p.day}${tricode(awayAbbr)}${tricode(homeAbbr)}`;
+export function eventSuffix(startIso, awayAbbr, homeAbbr, league = "nba") {
+  const p = etDate(startIso);
+  return `${p.year}${p.month.toUpperCase()}${p.day}${kalshiCode(league, awayAbbr)}${kalshiCode(league, homeAbbr)}`;
+}
+/**
+ * Find a game's Kalshi event suffix among the league's moneyline events. Kalshi subtitles
+ * look like "MIL vs NYK (Nov 10)"; match on the ET date and both team codes, in either order.
+ */
+export function matchEvent(league, game, events) {
+  const p = etDate(game.start); const date = `${p.year}${p.month.toUpperCase()}${p.day}`;
+  const want = new Set([kalshiCode(league, game.away), kalshiCode(league, game.home)]);
+  for (const e of Array.isArray(events) ? events : []) {
+    const sfx = e.event_ticker.split("-")[1] || ""; if (!sfx.startsWith(date)) continue;
+    const codes = String(e.sub_title || "").replace(/\(.*\)/, "").split(/\s+(?:vs|at|@)\s+/i).map(x => x.trim()).filter(Boolean);
+    if (codes.length === 2 && codes.every(c => want.has(c))) return sfx;
+    if (sfx === date + [...want].join("") || sfx === date + [...want].reverse().join("")) return sfx;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- http
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+let backoffUntil = 0, kalshiNext = 0;
 async function getJSON(url) {
+  const kalshi = url.startsWith(KALSHI);
+  if (kalshi) {
+    // pace Kalshi requests evenly (REQS_PER_SEC), and pause after a rate-limit answer
+    const now = Date.now(), at = Math.max(now, kalshiNext, backoffUntil);
+    kalshiNext = at + 1000 / REQS_PER_SEC;
+    if (at > now) await sleep(at - now);
+  }
   try {
     const r = await fetch(url, { headers: { "User-Agent": "proplab-latency-study/1.0", "Cache-Control": "no-cache" } });
+    if (r.status === 429 && kalshi) { backoffUntil = Date.now() + 2000; console.warn("Kalshi rate limit hit; backing off 2s"); return null; }
     if (!r.ok) return null;
     return await r.json();
   } catch { return null; }
@@ -128,158 +205,462 @@ export function measureScoreReaction(playT, timelines) {
   }
   return first == null ? null : (first - playT) / 1000;
 }
+/** Implied probability of a price point: mid of bid/ask (or whichever side exists). */
+export const midOf = p => p == null ? null : p.closed ? 1 : p.bid != null && p.ask != null ? (p.bid + p.ask) / 2 : (p.bid ?? p.ask ?? null);
+export const OFFSETS = [-10, -5, 0, 1, 2, 3, 5, 7, 10, 15, 20, 30, 45, 60, 90, 120]; // seconds after the play
+/**
+ * The price path after a play.
+ *   final: the value the market must end at (1 for a prop the play settled), or null to use
+ *          the mid WINDOW seconds later (game lines, which keep moving with the game).
+ * Returns times in seconds after the play; `path` is the mid at each OFFSET (null if unknown);
+ * `done` is the share of the total move completed at each OFFSET.
+ */
+export function trajectory(timeline, playT, { final = null, window = 120, seenT = null } = {}) {
+  const pre = midOf(stateAt(timeline, playT - 1));
+  if (pre == null) return null;
+  const at = t => midOf(stateAt(timeline, t));
+  const end = final ?? at(playT + window * 1e3);
+  const move = end - pre;
+  const path = OFFSETS.map(o => { if (o > window) return null; const v = at(playT + o * 1e3); return v == null ? null : +v.toFixed(4); });
+  const out = { pre: +pre.toFixed(4), end: +end.toFixed(4), move: +move.toFixed(4), path };
+  const inWin = timeline.filter(p => p.t >= playT - 2e3 && p.t <= playT + window * 1e3);
+  const v0 = stateAt(timeline, playT - 1)?.vol, v1 = stateAt(timeline, playT + window * 1e3)?.vol;
+  out.traded = v0 != null && v1 != null ? Math.max(0, Math.round(v1 - v0)) : null;
+  if (Math.abs(move) < 0.01) return { ...out, flat: true };
+  let tStart = null, t50 = null, t90 = null, steps = 0, last = pre;
+  for (const p of inWin) {
+    const m = midOf(p); if (m == null || m === last) continue;
+    steps++; last = m;
+    const dt = (p.t - playT) / 1000, frac = (m - pre) / move;
+    if (tStart == null) tStart = dt;
+    if (t50 == null && frac >= 0.5) t50 = dt;
+    if (t90 == null && frac >= 0.9) t90 = dt;
+  }
+  out.tStart = tStart; out.t50 = t50; out.t90 = t90; out.steps = steps;
+  out.done = path.map(v => v == null ? null : +Math.max(-0.5, Math.min(1.5, (v - pre) / move)).toFixed(3));
+  if (seenT != null) { const m = at(seenT); out.leftAtSeen = m == null ? null : +Math.max(0, Math.min(1, 1 - (m - pre) / move)).toFixed(3); }
+  return out;
+}
+/**
+ * Raw top of the order book around a play, for the trading simulator:
+ * [[secondsAfterPlay, bid, ask, askSize]] from `from` to `to` seconds; the first point is the state at `from`.
+ */
+export function bookWindow(tl, playT, from = -10, to = 120) {
+  const s0 = stateAt(tl, playT + from * 1e3); const out = [];
+  const pt = (p, dt) => [+dt.toFixed(2), p.bid ?? null, p.ask ?? null, p.askSize != null ? Math.round(p.askSize) : null];
+  if (s0) out.push(pt(s0, from));
+  for (const p of tl) { const dt = (p.t - playT) / 1000; if (dt > from && dt <= to) out.push(pt(p, dt)); }
+  return out.length ? out : null;
+}
+/** Seconds until the next scoring play (1s before it), between 3 and 120. */
+export const windowFor = (playT, nextT) => nextT == null ? 120 : Math.max(3, Math.min(120, Math.floor((nextT - playT) / 1000) - 1));
+/** Median share-of-move-done curve across many trajectories. */
+export function medianCurve(trajs) {
+  return OFFSETS.map((o, i) => median(trajs.map(t => t?.done?.[i])));
+}
 export function median(a) { const s = a.filter(x => x != null && Number.isFinite(x)).sort((x, y) => x - y); if (!s.length) return null; const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
 
+
+// ---------------------------------------------------------------- ESPN parsing
+/** All plays from an ESPN summary, oldest first (NBA: plays[]; NFL: drives). */
+export function espnPlays(summary) {
+  if (Array.isArray(summary?.plays) && summary.plays.length) return summary.plays;
+  const d = summary?.drives; if (!d) return [];
+  return [...(d.previous || []), ...(d.current ? [d.current] : [])].flatMap(x => x.plays || []);
+}
+const NFL_BOX = { passing: { passingYards: "pass_yds" }, rushing: { rushingYards: "rush_yds", rushingTouchdowns: "td" }, receiving: { receivingYards: "rec_yds", receptions: "rec", receivingTouchdowns: "td" } };
+/** NFL player totals from an ESPN box score: { athleteId: { name, pass_yds, rush_yds, rec_yds, rec, td } }. */
+export function nflTotals(summary) {
+  const out = {};
+  for (const team of summary?.boxscore?.players || []) for (const cat of team.statistics || []) {
+    const map = NFL_BOX[cat.name]; if (!map) continue;
+    for (const a of cat.athletes || []) {
+      const t = (out[a.athlete.id] ||= { name: a.athlete.displayName, pass_yds: 0, rush_yds: 0, rec_yds: 0, rec: 0, td: 0 });
+      cat.keys.forEach((k, i) => { if (map[k]) t[map[k]] += parseFloat(a.stats[i]) || 0; });
+    }
+  }
+  return out;
+}
+/** Key play summary for the game tracker (scores, NFL turnovers). */
+function keyPlay(league, p, teamById, prev) {
+  const t = p.type?.text || "";
+  const turnover = league === "nfl" && /interception|fumble/i.test(t + " " + (p.text || "")) && !/no play|overturned/i.test(p.text || "");
+  const scoring = !!p.scoringPlay;
+  if (!scoring && !turnover) return null;
+  const home = +p.homeScore, away = +p.awayScore;
+  const pts = scoring ? Math.abs((home + away) - (prev.home + prev.away)) || p.scoreValue || null : 0;
+  const [mm, ss] = String(p.clock?.displayValue || "").split(":").map(Number);
+  return {
+    id: p.id, type: scoring ? (league === "nfl" ? (t.match(/touchdown|field goal|safety|two-point|extra point/i)?.[0] || "Score") : "Score") : "Turnover",
+    team: teamById[p.team?.id] || teamById[p.start?.team?.id] || null, points: pts, period: p.period?.number,
+    secsLeft: Number.isFinite(mm) ? mm * 60 + (ss || 0) : null, home, away, text: String(p.text || "").slice(0, 120),
+  };
+}
+
 // ---------------------------------------------------------------- recorder
-class Recorder {
+export class Recorder {
   constructor() {
-    this.games = new Map();       // espnId → game
-    this.timelines = new Map();   // kalshi ticker → [{t, bid, ask, askSize}]
-    this.markets = new Map();     // ticker → { series, stat, name, line, event }
-    this.crossings = [];          // raw crossings (measured at the end)
-    this.scoring = [];            // { gameId, playT, seenT }
-    this.feedDelays = [];         // every play's feed delay (s)
+    this.games = new Map();       // `${league}:${espnId}` → game
+    this.timelines = new Map();   // kalshi ticker → [{t, bid, ask, vol, askSize}]
+    this.markets = new Map();     // ticker → { league, series, group, suffix, title, sub, name, line, stat }
+    this.seriesPolls = new Map(); // series → [poll times] (sampling interval)
+    this.crossings = [];
+    this.scoring = [];            // NBA scoring plays for the game-line trajectory analysis
+    this.feedDelays = [];
+    this.playerEvents = [];       // every stat change for a player who has Kalshi markets on that stat
     this.started = Date.now();
+    this.slowPtr = 0;
+    this.emptySeries = new Map(); // series → time it last had no markets for live games
   }
 
   async refreshGames() {
-    const days = [0, -1].map(o => { const d = new Date(Date.now() + o * 86400e3); return d.toISOString().slice(0, 10).replace(/-/g, ""); });
-    for (const day of days) {
-      const sb = await getJSON(`${ESPN}/scoreboard?dates=${day}`);
-      for (const e of sb?.events || []) {
-        const c = e.competitions?.[0]; if (!c) continue;
-        const home = c.competitors.find(x => x.homeAway === "home")?.team, away = c.competitors.find(x => x.homeAway === "away")?.team;
-        const state = e.status?.type?.state;
-        const g = this.games.get(e.id) || { id: e.id, name: e.shortName, start: e.date, home: home.abbreviation, away: away.abbreviation,
-          suffix: eventSuffix(e.date, away.abbreviation, home.abbreviation), seen: new Set(), totals: {}, names: {}, nbaId: null };
-        g.state = state; this.games.set(e.id, g);
+    const days = [-1, 0, 1].map(o => new Date(Date.now() + o * 86400e3).toISOString().slice(0, 10).replace(/-/g, ""));
+    for (const lk of LEAGUE_KEYS) {
+      const L = LEAGUES[lk]; if (!L) continue;
+      let gameEvents = null;
+      for (const day of days) {
+        const sb = await getJSON(`${ESPN_BASE}/${L.espn}/scoreboard?dates=${day}`);
+        for (const e of sb?.events || []) {
+          const c = e.competitions?.[0]; if (!c) continue;
+          const home = c.competitors.find(x => x.homeAway === "home"), away = c.competitors.find(x => x.homeAway === "away");
+          const key = `${lk}:${e.id}`;
+          const g = this.games.get(key) || { key, league: lk, id: e.id, name: e.shortName, start: e.date, home: home.team.abbreviation, away: away.team.abbreviation,
+            homeName: home.team.displayName, awayName: away.team.displayName, suffix: null, seen: new Set(), totals: {}, names: {}, keyPlays: [], lastScore: { home: 0, away: 0 } };
+          g.state = e.status?.type?.state; g.detail = e.status?.type?.shortDetail; g.score = { home: +home.score || 0, away: +away.score || 0 };
+          g.teamById = { [home.team.id]: home.team.abbreviation, [away.team.id]: away.team.abbreviation };
+          if (g.state === "in" && !g.tipT) g.tipT = Date.now();
+          if (g.state === "post" && g.tipT && !g.endT) g.endT = Date.now();
+          this.games.set(key, g);
+        }
       }
-    }
-    if (FEED === "nba") {
-      const sb = await getJSON(`${NBA_CDN}/scoreboard/todaysScoreboard_00.json`);
-      for (const ng of sb?.scoreboard?.games || []) for (const g of this.games.values())
-        if (tricode(g.home) === ng.homeTeam.teamTricode && tricode(g.away) === ng.awayTeam.teamTricode) g.nbaId = ng.gameId;
+      // match games that are live or about to start to their Kalshi events (one request per league)
+      for (const g of this.games.values()) {
+        if (g.league !== lk || g.suffix || !(g.state === "in" || (g.state === "pre" && new Date(g.start) - Date.now() < 3 * 3600e3))) continue;
+        gameEvents ||= (await getJSON(`${KALSHI}/events?series_ticker=${L.game}&limit=200`))?.events || [];
+        g.suffix = matchEvent(lk, g, gameEvents);
+        if (!g.suffix) console.log(`no Kalshi moneyline event found for ${lk.toUpperCase()} ${g.name}`);
+      }
     }
   }
 
   live() { return [...this.games.values()].filter(g => g.state === "in"); }
   pending() { return [...this.games.values()].filter(g => g.state === "pre" && new Date(g.start) - Date.now() < 4 * 3600e3); }
 
-  async pollKalshi() {
-    const now = Date.now(), prevPoll = this.lastKalshiPoll || now - POLL_MS;
-    const series = [...Object.keys(PROP_SERIES), GAME_SERIES];
-    const suffixes = new Set(this.live().map(g => g.suffix));
+  /**
+   * Next series to poll. Three priority levels share the request budget in the pattern
+   * fast, fast, medium, fast, fast, slow: moneyline/spread/total/headline prop most often,
+   * other props next, quarters/halves/specials in rotation. Series with no markets for live
+   * games are skipped for 5 minutes. Price changes are still timed with Kalshi's own
+   * updated_time, so a slower refresh mostly costs intermediate steps, not timing precision.
+   */
+  nextSeries() {
+    const leagues = [...new Set(this.live().filter(g => g.suffix).map(g => g.league))];
+    if (!leagues.length) return null;
+    const now = Date.now(), ok = s => !(this.emptySeries.get(s) > now - 300e3);
+    const lists = { fast: leagues.flatMap(l => LEAGUES[l].fast), medium: leagues.flatMap(l => LEAGUES[l].medium).filter(ok), slow: leagues.flatMap(l => LEAGUES[l].slow).filter(ok) };
+    const pattern = ["fast", "fast", "medium", "fast", "fast", "slow"];
+    this.ptr ||= { fast: 0, medium: 0, slow: 0 };
+    for (let i = 0; i < pattern.length; i++) {
+      const tier = pattern[(this.tick = (this.tick || 0) + 1) % pattern.length];
+      const list = lists[tier]; if (list.length) return list[(this.ptr[tier]++) % list.length];
+    }
+    return lists.fast[0];
+  }
+
+  async pollSeries(series) {
+    const now = Date.now(), lastPoll = this.seriesPolls.get(series)?.at(-1) ?? now - POLL_MS;
+    const league = series.startsWith("KXNFL") ? "nfl" : "nba";
+    const suffixes = new Set(this.live().filter(g => g.league === league && g.suffix).map(g => g.suffix));
     if (!suffixes.size) return;
-    for (const s of series) {
-      let cursor = "", complete = false; const seenTickers = new Set();
-      for (let page = 0; page < 5; page++) {
-        const r = await getJSON(`${KALSHI}/markets?series_ticker=${s}&status=open&limit=200${cursor ? `&cursor=${cursor}` : ""}`);
-        if (!r) break;
-        for (const m of r.markets || []) {
-          const suffix = m.event_ticker.split("-")[1]; if (!suffixes.has(suffix)) continue;
-          seenTickers.add(m.ticker);
-          if (!this.markets.has(m.ticker)) this.markets.set(m.ticker, {
-            series: s, stat: PROP_SERIES[s] || null, event: m.event_ticker, suffix,
-            name: s === GAME_SERIES ? m.yes_sub_title : String(m.title).split(":")[0].trim(), line: m.floor_strike,
-          });
-          const bid = m.yes_bid_dollars != null ? +m.yes_bid_dollars : null, ask = m.yes_ask_dollars != null ? +m.yes_ask_dollars : null;
-          const tl = this.timelines.get(m.ticker) || []; const last = tl[tl.length - 1];
-          if (!last || last.bid !== bid || last.ask !== ask) {
-            // The change happened after our previous poll and before this one. Kalshi's own
-            // updated_time narrows it down, but only trust it inside that window.
-            const kt = m.updated_time ? Date.parse(m.updated_time) : NaN;
-            const t = last && Number.isFinite(kt) && kt > prevPoll && kt <= now ? kt : now;
-            tl.push({ t, polled: now, bid, ask, askSize: m.yes_ask_size_fp != null ? +m.yes_ask_size_fp : null });
-            this.timelines.set(m.ticker, tl);
-          }
+    let cursor = "", complete = false, any = false; const seenTickers = new Set();
+    for (let page = 0; page < 6; page++) {
+      const r = await getJSON(`${KALSHI}/markets?series_ticker=${series}&status=open&limit=200${cursor ? `&cursor=${cursor}` : ""}`);
+      if (!r) break;
+      for (const m of r.markets || []) {
+        const suffix = m.event_ticker.split("-")[1]; if (!suffixes.has(suffix)) continue;
+        any = true; seenTickers.add(m.ticker);
+        if (!this.markets.has(m.ticker)) {
+          const props = LEAGUES[league].props;
+          this.markets.set(m.ticker, { league, series, group: seriesGroup(series, league), suffix, title: m.title, sub: m.yes_sub_title,
+            stat: props[series] || null, name: props[series] ? String(m.title).split(":")[0].trim() : (series === LEAGUES[league].game ? m.yes_sub_title : null),
+            line: m.floor_strike ?? null, team: series === LEAGUES[league].game ? m.ticker.split("-").at(-1) : null });
         }
-        cursor = r.cursor; if (!cursor) { complete = true; break; }
+        const bid = m.yes_bid_dollars != null ? +m.yes_bid_dollars : null, ask = m.yes_ask_dollars != null ? +m.yes_ask_dollars : null;
+        const vol = m.volume_fp != null ? +m.volume_fp : null;
+        const tl = this.timelines.get(m.ticker) || []; const last = tl[tl.length - 1];
+        if (!last || last.bid !== bid || last.ask !== ask || last.vol !== vol) {
+          // the change happened after our previous poll of this series; Kalshi's updated_time narrows it down
+          const kt = m.updated_time ? Date.parse(m.updated_time) : NaN;
+          const t = last && Number.isFinite(kt) && kt > lastPoll && kt <= now ? kt : now;
+          tl.push({ t, polled: now, bid, ask, vol, askSize: m.yes_ask_size_fp != null ? +m.yes_ask_size_fp : null });
+          this.timelines.set(m.ticker, tl);
+        }
       }
-      // A tracked market that left the open list was closed by Kalshi (e.g. the prop was decided):
-      // count that as Kalshi having adjusted. Only trusted after a complete listing.
-      if (complete) for (const [ticker, m] of this.markets) {
-        if (m.series !== s || !suffixes.has(m.suffix) || seenTickers.has(ticker)) continue;
+      cursor = r.cursor; if (!cursor) { complete = true; break; }
+    }
+    if (complete) {
+      if (!any) this.emptySeries.set(series, now); else this.emptySeries.delete(series);
+      // a tracked market that left the open list was closed (e.g. decided): count it as settled
+      for (const [ticker, m] of this.markets) {
+        if (m.series !== series || !suffixes.has(m.suffix) || seenTickers.has(ticker)) continue;
         const tl = this.timelines.get(ticker) || []; const last = tl[tl.length - 1];
-        if (last && !last.closed) tl.push({ t: now, polled: now, bid: 1, ask: 1, closed: true });
+        if (last && !last.closed) tl.push({ t: now, polled: now, bid: 1, ask: 1, vol: last.vol, closed: true });
       }
     }
-    this.lastKalshiPoll = now;
+    const polls = this.seriesPolls.get(series) || []; polls.push(now); if (polls.length > 400) polls.splice(0, 200); this.seriesPolls.set(series, polls);
   }
 
   async pollFeed(g) {
     const now = Date.now();
-    if (FEED === "nba" && g.nbaId) {
-      const pbp = await getJSON(`${NBA_CDN}/playbyplay/playbyplay_${g.nbaId}.json`);
-      const box = Object.keys(g.names).length ? null : await getJSON(`${NBA_CDN}/boxscore/boxscore_${g.nbaId}.json`);
-      for (const side of ["homeTeam", "awayTeam"]) for (const p of box?.game?.[side]?.players || []) g.names[String(p.personId)] = p.name;
-      for (const a of pbp?.game?.actions || []) {
-        const key = "n" + a.actionNumber; if (g.seen.has(key)) continue; g.seen.add(key);
-        if (!g.primed) continue; // ignore the backlog present when we start
-        const playT = Date.parse(a.timeActual); this.onPlay(g, playT, now, nbaIncrements(a), a.shotResult === "Made");
+    const L = LEAGUES[g.league];
+    if (g.league === "nba" && FEED === "nba") return this.pollNbaCdn(g, now);
+    const s = await getJSON(`${ESPN_BASE}/${L.espn}/summary?event=${g.id}`);
+    if (!s) return;
+    if (g.league === "nba") for (const team of s.boxscore?.players || []) for (const a of team.statistics?.[0]?.athletes || []) g.names[a.athlete.id] = a.athlete.displayName;
+    let newestPlayT = null;
+    for (const p of espnPlays(s)) {
+      if (g.seen.has(p.id)) continue; g.seen.add(p.id);
+      const playT = Date.parse(p.wallclock);
+      const kp = keyPlay(g.league, p, g.teamById, g.lastScore);
+      if (p.homeScore != null) g.lastScore = { home: +p.homeScore, away: +p.awayScore };
+      if (!g.primed) { if (g.league === "nba") for (const i of espnIncrements(p)) this.add(g, i); continue; } // backlog
+      if (!Number.isFinite(playT)) continue;
+      newestPlayT = Math.max(newestPlayT ?? 0, playT);
+      this.feedDelays.push({ league: g.league, d: (now - playT) / 1000 });
+      if (kp) g.keyPlays.push({ ...kp, playT, seenT: now });
+      if (g.league === "nba") {
+        if (p.scoringPlay && kp?.team) this.scoring.push({ league: "nba", suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: p.scoreValue, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
+        this.applyIncrements(g, espnIncrements(p), playT, now);
       }
-    } else {
-      const s = await getJSON(`${ESPN}/summary?event=${g.id}`);
-      if (!s) return;
-      for (const team of s.boxscore?.players || []) for (const a of team.statistics?.[0]?.athletes || []) g.names[a.athlete.id] = a.athlete.displayName;
-      for (const p of s.plays || []) {
-        if (g.seen.has(p.id)) continue; g.seen.add(p.id);
-        if (!g.primed) { for (const i of espnIncrements(p)) this.add(g, i); continue; } // backlog: just build totals
-        const playT = Date.parse(p.wallclock); this.onPlay(g, playT, now, espnIncrements(p), !!p.scoringPlay);
-      }
+      // NFL scores feed the game-line simulator
+      if (g.league === "nfl" && kp?.type !== "Turnover" && kp?.team && kp.points) this.scoring.push({ league: "nfl", suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: kp.points, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
     }
+    if (g.league === "nfl") {
+      // NFL props: compare box-score totals with the previous poll; a crossing is timed to the newest play
+      const tot = nflTotals(s);
+      if (g.primed && newestPlayT) for (const [id, t] of Object.entries(tot)) {
+        const before = g.totals[id] || {};
+        for (const stat of ["pass_yds", "rush_yds", "rec_yds", "rec", "td"]) if ((t[stat] || 0) > (before[stat] || 0)) this.checkCrossings(g, t.name, stat, before[stat] || 0, t[stat], newestPlayT, now);
+      }
+      g.totals = tot;
+    }
+    g.primed = true;
+  }
+
+  async pollNbaCdn(g, now) {
+    if (!g.nbaId) {
+      const sb = await getJSON(`${NBA_CDN}/scoreboard/todaysScoreboard_00.json`);
+      for (const ng of sb?.scoreboard?.games || []) if (tricode(g.home) === ng.homeTeam.teamTricode && tricode(g.away) === ng.awayTeam.teamTricode) g.nbaId = ng.gameId;
+      if (!g.nbaId) return;
+    }
+    const pbp = await getJSON(`${NBA_CDN}/playbyplay/playbyplay_${g.nbaId}.json`);
     if (!g.primed) {
-      g.primed = true;
-      // NBA feed backlog: seed totals from the box score instead
-      if (FEED === "nba" && g.nbaId) {
-        const box = await getJSON(`${NBA_CDN}/boxscore/boxscore_${g.nbaId}.json`);
-        for (const side of ["homeTeam", "awayTeam"]) for (const p of box?.game?.[side]?.players || []) {
-          const st = p.statistics || {}; const id = String(p.personId);
-          g.totals[id] = { pts: st.points || 0, reb: st.reboundsTotal || 0, ast: st.assists || 0, fg3: st.threePointersMade || 0 };
-        }
+      const box = await getJSON(`${NBA_CDN}/boxscore/boxscore_${g.nbaId}.json`);
+      for (const side of ["homeTeam", "awayTeam"]) for (const p of box?.game?.[side]?.players || []) {
+        const st = p.statistics || {}; const id = String(p.personId); g.names[id] = p.name;
+        g.totals[id] = { pts: st.points || 0, reb: st.reboundsTotal || 0, ast: st.assists || 0, fg3: st.threePointersMade || 0 };
       }
     }
+    for (const a of pbp?.game?.actions || []) {
+      const key = "n" + a.actionNumber; if (g.seen.has(key)) continue; g.seen.add(key);
+      if (!g.primed) continue;
+      const playT = Date.parse(a.timeActual); if (!Number.isFinite(playT)) continue;
+      this.feedDelays.push({ league: "nba", d: (now - playT) / 1000 });
+      const clk = /PT(\d+)M([\d.]+)S/.exec(a.clock || "");
+      if (a.shotResult === "Made") {
+        const kp = { type: "Score", team: a.teamTricode, points: a.actionType === "freethrow" ? 1 : a.actionType === "3pt" ? 3 : 2, period: a.period,
+          secsLeft: clk ? +clk[1] * 60 + +clk[2] : null, home: +a.scoreHome, away: +a.scoreAway, text: a.description };
+        g.keyPlays.push({ ...kp, playT, seenT: now });
+        this.scoring.push({ league: "nba", suffix: g.suffix, game: g.name, playT, seenT: now, ...kp });
+      }
+      this.applyIncrements(g, nbaIncrements(a), playT, now);
+    }
+    g.primed = true;
   }
 
   add(g, i) { const t = (g.totals[i.id] ||= { pts: 0, reb: 0, ast: 0, fg3: 0 }); const before = t[i.stat]; t[i.stat] += i.n; return [before, t[i.stat]]; }
-
-  onPlay(g, playT, seenT, incs, scoring) {
-    if (!Number.isFinite(playT)) return;
-    this.feedDelays.push((seenT - playT) / 1000);
-    if (scoring) this.scoring.push({ suffix: g.suffix, playT, seenT });
-    for (const i of incs) {
-      const [before, after] = this.add(g, i);
-      const name = g.names[i.id]; if (!name) continue;
-      // every Kalshi strike this play pushed the player over settles YES
-      for (const [ticker, m] of this.markets) {
-        if (m.suffix !== g.suffix || m.stat !== i.stat || normName(m.name) !== normName(name)) continue;
-        if (before <= m.line && after > m.line) this.crossings.push({ ticker, game: g.name, player: name, stat: i.stat, line: m.line, playT, seenT });
-      }
+  applyIncrements(g, incs, playT, seenT) {
+    for (const i of incs) { const [before, after] = this.add(g, i); const name = g.names[i.id]; if (name) this.checkCrossings(g, name, i.stat, before, after, playT, seenT); }
+  }
+  /** Every Kalshi strike a stat change pushed the player over settles YES. */
+  checkCrossings(g, name, stat, before, after, playT, seenT) {
+    let has = false;
+    for (const [ticker, m] of this.markets) {
+      if (m.suffix !== g.suffix || m.stat !== stat || m.line == null || normName(m.name || "") !== normName(name)) continue;
+      has = true;
+      if (before <= m.line && after > m.line) this.crossings.push({ ticker, league: g.league, game: g.name, player: name, stat, line: m.line, playT, seenT });
     }
+    // every stat change is a player event, crossing or not (it moves the player's higher lines too)
+    if (has) this.playerEvents.push({ league: g.league, suffix: g.suffix, game: g.name, player: name, stat, before, after, playT, seenT });
+  }
+  /** A player event with the price path of the player's next two lines it did not settle. */
+  playerEventReport(e) {
+    const rungs = [...this.markets].filter(([, m]) => m.suffix === e.suffix && m.stat === e.stat && m.line != null && m.line >= e.after && normName(m.name || "") === normName(e.player))
+      .sort((a, b) => a[1].line - b[1].line).slice(0, 2)
+      .map(([ticker, m]) => { const tl = this.timelines.get(ticker) || []; return { ticker, line: m.line, traj: trajectory(tl, e.playT, { seenT: e.seenT }), book: bookWindow(tl, e.playT) }; })
+      .filter(r => r.book);
+    const { playT, seenT, suffix, ...rest } = e;
+    return { ...rest, play: new Date(playT).toISOString(), feedDelay: (seenT - playT) / 1000, rungs };
+  }
+  /** Players with Kalshi markets in a game: live stats and every line, from the market rows. */
+  playersReport(g, rows) {
+    const totals = {};
+    for (const [id, t] of Object.entries(g.totals || {})) { const name = t.name || g.names[id]; if (name) totals[normName(name)] = t; }
+    const players = {};
+    for (const r of rows) {
+      if (r.group !== "Player props" || !String(r.label).includes(":")) continue;
+      const [who, what] = String(r.label).split(/:(.*)/s);
+      const key = normName(who); const P = (players[key] ||= { player: who.trim(), stats: null, lines: [], traded: 0, events: 0 });
+      const m = this.markets.get(r.ticker) || {};
+      const cur = m.stat ? totals[key]?.[m.stat] : null;
+      P.lines.push({ ticker: r.ticker, label: what.trim(), stat: m.stat || null, line: r.line, pre: r.pre, end: r.end, change: r.change, traded: r.traded, closed: r.closed,
+        settled: cur != null && r.line != null ? cur > r.line : null });
+      P.traded += r.traded || 0;
+    }
+    for (const e of this.playerEvents) if (e.suffix === g.suffix && players[normName(e.player)]) players[normName(e.player)].events++;
+    for (const [key, P] of Object.entries(players)) {
+      const t = totals[key]; if (t) P.stats = Object.fromEntries(Object.entries(t).filter(([k, v]) => k !== "name" && typeof v === "number"));
+      P.lines.sort((a, b) => String(a.stat ?? a.label).localeCompare(String(b.stat ?? b.label)) || (a.line ?? 0) - (b.line ?? 0));
+    }
+    return Object.values(players).sort((a, b) => b.traded - a.traded);
+  }
+
+  /** Per-game comparison of every Kalshi market. */
+  gameReport(g) {
+    const tip = g.tipT ? Math.min(g.tipT, g.keyPlays[0]?.playT ?? Infinity) : g.keyPlays[0]?.playT ?? this.started;
+    const markets = [...this.markets].filter(([, m]) => m.suffix === g.suffix && m.league === g.league);
+    const keyTs = g.keyPlays.map(k => k.playT).sort((a, b) => a - b);
+    const sampling = s => { const p = this.seriesPolls.get(s) || []; return p.length > 2 ? median(p.slice(1).map((t, i) => t - p[i])) / 1000 : null; };
+    const rows = markets.map(([ticker, m]) => {
+      const tl = this.timelines.get(ticker) || [];
+      const inGame = tl.filter(p => p.t >= tip);
+      const mids = inGame.map(midOf).filter(v => v != null);
+      const pre = midOf(stateAt(tl, tip - 1)) ?? midOf(tl[0]);
+      const end = midOf(tl[tl.length - 1]);
+      let moves = 0, lastMid = pre; for (const p of inGame) { const v = midOf(p); if (v != null && v !== lastMid) { moves++; lastMid = v; } }
+      const v0 = stateAt(tl, tip - 1)?.vol ?? tl[0]?.vol, v1 = tl[tl.length - 1]?.vol;
+      // reaction to key plays: when did this market start moving / get 50% of its move (window to next key play)
+      const reacts = [];
+      if (moves) keyTs.forEach((t, i) => { const tr = trajectory(tl, t, { window: windowFor(t, keyTs[i + 1] ?? null) }); if (tr && !tr.flat) reacts.push(tr); });
+      const row = { ticker, group: m.group, series: m.series, label: marketLabel(m), line: m.line,
+        pre: pre != null ? +pre.toFixed(3) : null, end: end != null ? +end.toFixed(3) : null,
+        high: mids.length ? Math.max(...mids) : null, low: mids.length ? Math.min(...mids) : null, moves,
+        traded: v0 != null && v1 != null ? Math.max(0, Math.round(v1 - v0)) : null, closed: !!tl[tl.length - 1]?.closed,
+        samplingSec: sampling(m.series), reactN: reacts.length, reactStart: median(reacts.map(r => r.tStart)), reactT50: median(reacts.map(r => r.t50)) };
+      row.change = row.pre != null && row.end != null ? +(row.end - row.pre).toFixed(3) : null;
+      row.spark = sparkline(tl, tip, Date.now(), 40);
+      return row;
+    });
+    // keep the file small: price path only for markets that moved
+    rows.sort((a, b) => Math.abs(b.change ?? 0) - Math.abs(a.change ?? 0) || (b.traded ?? 0) - (a.traded ?? 0));
+    rows.forEach((r, i) => { if (!r.moves || i >= 150) delete r.spark; });
+    const groups = {};
+    for (const r of rows) (groups[r.group] ||= []).push(r);
+    const groupSummary = Object.entries(groups).map(([group, rs]) => ({ group, markets: rs.length, moved: rs.filter(r => r.moves).length,
+      medianAbsChange: median(rs.filter(r => r.moves).map(r => Math.abs(r.change ?? 0))), traded: rs.reduce((a, r) => a + (r.traded || 0), 0),
+      medianReactStart: median(rs.map(r => r.reactStart)), medianReactT50: median(rs.map(r => r.reactT50)), samplingSec: median(rs.map(r => r.samplingSec)) }))
+      .sort((a, b) => b.traded - a.traded);
+    // home team's win probability through the game
+    const homeTicker = markets.find(([, m]) => m.series === LEAGUES[g.league].game && m.team === kalshiCode(g.league, g.home))?.[0];
+    const wp = homeTicker ? sparkline(this.timelines.get(homeTicker) || [], tip - 10 * 60e3, Date.now(), 400) : null;
+    return { league: g.league, id: g.id, name: g.name, home: g.home, away: g.away, homeName: g.homeName, awayName: g.awayName, start: g.start,
+      state: g.state, detail: g.detail, score: g.score, suffix: g.suffix, tip: new Date(tip).toISOString(),
+      winProb: wp, keyPlays: g.keyPlays.map(({ playT, seenT, ...k }) => ({ ...k, t: new Date(playT).toISOString(), feedDelay: (seenT - playT) / 1000 })),
+      groupSummary, players: this.playersReport(g, rows), markets: rows };
   }
 
   results() {
-    const crossings = this.crossings.map(c => measureCrossing(c, this.timelines.get(c.ticker) || []));
-    const games = [...this.games.values()].filter(g => g.seen.size).map(g => ({ id: g.id, name: g.name, suffix: g.suffix }));
+    const crossings = this.crossings.map(c => {
+      const tl = this.timelines.get(c.ticker) || [];
+      const r = measureCrossing(c, tl);
+      if (!r.alreadyPriced) { r.traj = trajectory(tl, c.playT, { final: 1, seenT: c.seenT }); r.book = bookWindow(tl, c.playT); }
+      return r;
+    });
+    const games = [...this.games.values()].filter(g => g.suffix && g.seen.size);
+    // game-line trajectory after NBA scores (window ends at the next score)
+    const nextScore = new Map();
+    const byGame = {}; for (const s of this.scoring) (byGame[s.suffix] ||= []).push(s);
+    for (const list of Object.values(byGame)) { list.sort((a, b) => a.playT - b.playT); list.forEach((s, i) => nextScore.set(s, list[i + 1]?.playT ?? null)); }
     const scoreReactions = this.scoring.map(s => {
-      const tls = [...this.markets].filter(([, m]) => m.series === GAME_SERIES && m.suffix === s.suffix).map(([t]) => this.timelines.get(t) || []);
-      return { ...s, kalshiDelay: measureScoreReaction(s.playT, tls), feedDelay: (s.seenT - s.playT) / 1000 };
+      const lg = s.league || "nba", gameSeries = LEAGUES[lg].game;
+      const own = [...this.markets].find(([t, m]) => m.series === gameSeries && m.suffix === s.suffix && t.endsWith("-" + kalshiCode(lg, s.team)));
+      const tls = [...this.markets].filter(([, m]) => m.series === gameSeries && m.suffix === s.suffix).map(([t]) => this.timelines.get(t) || []);
+      const tl = own ? this.timelines.get(own[0]) || [] : [];
+      const margin = s.home != null && s.away != null ? Math.abs(s.home - s.away) : null;
+      const window = windowFor(s.playT, nextScore.get(s));
+      return {
+        league: lg, game: s.game, team: s.team, points: s.points, period: s.period, secsLeft: s.secsLeft, margin,
+        clutch: s.period >= 4 && s.secsLeft != null && s.secsLeft <= 300 && margin != null && margin <= 8,
+        playT: s.playT, feedDelay: (s.seenT - s.playT) / 1000, window,
+        kalshiDelay: measureScoreReaction(s.playT, tls),
+        traj: own ? trajectory(tl, s.playT, { seenT: s.seenT, window }) : null,
+        book: own ? bookWindow(tl, s.playT) : null,   // for the trading simulator (not cut at the next score)
+      };
     });
     const measured = crossings.filter(c => !c.alreadyPriced);
     const stale = measured.filter(c => c.feedFirst && c.staleEdge != null && c.staleEdge > 0);
+    const pTraj = measured.map(c => c.traj).filter(t => t && !t.flat);
+    const nbaReactions = scoreReactions.filter(r => r.league === "nba");
+    const gTraj = nbaReactions.map(r => r.traj).filter(t => t && !t.flat);
+    const groups = {};
+    for (const r of nbaReactions) {
+      if (!r.traj) continue;
+      (groups[`${r.clutch ? "Last 5 min, within 8" : "Rest of game"}|${r.points}`] ||= []).push(r.traj);
+    }
+    const gameBySituation = Object.entries(groups).map(([k, ts]) => {
+      const [situation, points] = k.split("|"); const moving = ts.filter(t => !t.flat);
+      return { situation, points: +points, plays: ts.length, moved: moving.length,
+        medianMove: median(ts.map(t => Math.abs(t.move))), medianT50: median(moving.map(t => t.t50)), medianT90: median(moving.map(t => t.t90)) };
+    }).sort((a, b) => a.situation.localeCompare(b.situation) || a.points - b.points);
+    const fd = this.feedDelays.map(x => x.d);
     return {
       date: new Date(this.started).toISOString().slice(0, 10), started: new Date(this.started).toISOString(), ended: new Date().toISOString(),
-      feed: FEED, pollMs: POLL_MS, games,
+      feed: FEED, pollMs: POLL_MS, offsets: OFFSETS, leagues: [...new Set(games.map(g => g.league))],
+      games: games.map(g => ({ league: g.league, id: g.id, name: g.name, suffix: g.suffix })),
       summary: {
-        plays: this.feedDelays.length, crossings: crossings.length, measured: measured.length,
-        medianFeedDelay: median(this.feedDelays), medianKalshiDelay: median(measured.map(c => c.kalshiDelay)),
+        plays: fd.length, crossings: crossings.length, measured: measured.length,
+        medianFeedDelay: median(fd), medianFeedDelayNba: median(this.feedDelays.filter(x => x.league === "nba").map(x => x.d)),
+        medianFeedDelayNfl: median(this.feedDelays.filter(x => x.league === "nfl").map(x => x.d)),
+        medianKalshiDelay: median(measured.map(c => c.kalshiDelay)),
         feedFirstShare: measured.length ? measured.filter(c => c.feedFirst).length / measured.length : null,
         staleChances: stale.length, medianStaleEdge: median(stale.map(c => c.staleEdge)),
-        scoringPlays: scoreReactions.length, medianGameLineDelay: median(scoreReactions.map(r => r.kalshiDelay)),
+        scoringPlays: nbaReactions.length, medianGameLineDelay: median(nbaReactions.map(r => r.kalshiDelay)),
+        propMove: median(pTraj.map(t => t.move)), propStart: median(pTraj.map(t => t.tStart)), propT50: median(pTraj.map(t => t.t50)),
+        propT90: median(pTraj.map(t => t.t90)), propSteps: median(pTraj.map(t => t.steps)), propTraded: median(pTraj.map(t => t.traded)),
+        propLeftAtSeen: median(pTraj.map(t => t.leftAtSeen)),
+        gameMoved: gTraj.length, gameMove: median(gTraj.map(t => Math.abs(t.move))), gameStart: median(gTraj.map(t => t.tStart)),
+        gameT50: median(gTraj.map(t => t.t50)), gameT90: median(gTraj.map(t => t.t90)), gameSteps: median(gTraj.map(t => t.steps)),
+        gameTraded: median(gTraj.map(t => t.traded)), gameLeftAtSeen: median(gTraj.map(t => t.leftAtSeen)),
+        markets: this.markets.size,
       },
+      curves: { props: medianCurve(pTraj), game: medianCurve(gTraj) },
+      gameBySituation,
+      gameReports: games.map(g => this.gameReport(g)),
       crossings: crossings.map(({ seenT, playT, ...c }) => ({ ...c, play: new Date(playT).toISOString() })),
-      scoreReactions: scoreReactions.map(r => ({ play: new Date(r.playT).toISOString(), feedDelay: r.feedDelay, kalshiDelay: r.kalshiDelay })),
+      playerEvents: this.playerEvents.slice(-4000).map(e => this.playerEventReport(e)),
+      scoreReactions: scoreReactions.map(({ playT, ...r }) => ({ ...r, play: new Date(playT).toISOString() })),
     };
   }
+
+  /** Small snapshot of live games for the live view. */
+  liveSnapshot() {
+    const games = [...this.games.values()].filter(g => g.suffix && (g.state === "in" || (g.state === "post" && g.endT > Date.now() - 30 * 60e3)));
+    return { updated: new Date().toISOString(), games: games.map(g => { const r = this.gameReport(g); r.markets = r.markets.slice(0, 120); return r; }) };
+  }
+}
+
+/** Readable market name: Kalshi's own market title ("Jalen Brunson: 25+ points", "Boston wins"). */
+export const marketLabel = m => String(m.title || m.sub || "");
+/** Mid price sampled at `n` evenly spaced times between from and to (for charts). */
+export function sparkline(tl, from, to, n) {
+  if (!tl.length || to <= from) return null;
+  const out = []; let j = 0, cur = null;
+  for (let i = 0; i < n; i++) {
+    const t = from + (to - from) * i / (n - 1);
+    while (j < tl.length && tl[j].t <= t) cur = tl[j++];
+    const v = midOf(cur); out.push(v == null ? null : Math.round(v * 1000) / 1000);
+  }
+  return { from: new Date(from).toISOString(), to: new Date(to).toISOString(), v: out };
 }
 
 async function save(rec) {
@@ -289,31 +670,40 @@ async function save(rec) {
   const file = `${res.date}-${hhmm}-${FEED}.json`;
   await writeFile(`${OUT_DIR}/${file}`, JSON.stringify(res));
   let index = []; try { index = JSON.parse(await readFile(`${OUT_DIR}/index.json`, "utf8")); } catch {}
-  index = index.filter(x => x.file !== file).concat({ file, date: res.date, started: res.started, feed: res.feed, games: res.games.length, ...res.summary }).sort((a, b) => (b.started || b.date).localeCompare(a.started || a.date));
+  index = index.filter(x => x.file !== file).concat({ file, date: res.date, started: res.started, feed: res.feed, leagues: res.leagues, games: res.games.length,
+    gameNames: res.games.map(g => `${g.league.toUpperCase()} ${g.name}`), ...res.summary })
+    .sort((a, b) => (b.started || b.date).localeCompare(a.started || a.date));
   await writeFile(`${OUT_DIR}/index.json`, JSON.stringify(index, null, 1));
   return res;
 }
 
 async function main() {
   const rec = new Recorder(); const deadline = Date.now() + MAX_MINUTES * 60e3;
-  let lastGames = 0, lastSave = Date.now(), everLive = false;
+  let lastGames = 0, lastSave = Date.now(), lastLive = 0, everLive = false, running = true;
   const stop = async () => {
-    if ([...rec.games.values()].some(g => g.seen.size)) { const r = await save(rec); console.log("saved", JSON.stringify(r.summary)); }
+    running = false;
+    if ([...rec.games.values()].some(g => g.suffix && g.seen.size)) { const r = await save(rec); console.log("saved", JSON.stringify(r.summary)); }
     else console.log("Nothing recorded; no file written.");
     process.exit(0);
   };
   process.on("SIGTERM", stop); process.on("SIGINT", stop);
-  console.log(`Kalshi latency study: feed=${FEED}, poll=${POLL_MS}ms, max ${MAX_MINUTES} min`);
+  console.log(`Kalshi latency study: leagues=${LEAGUE_KEYS}, feed=${FEED}, poll=${POLL_MS}ms, Kalshi ${REQS_PER_SEC} req/s, max ${MAX_MINUTES} min`);
+  // Kalshi: a steady paced loop over series (getJSON spaces the requests)
+  (async () => { while (running) { const s = rec.nextSeries(); if (s) await rec.pollSeries(s); else await sleep(1000); } })();
+  // feed + housekeeping: about once a second
   while (Date.now() < deadline) {
     if (Date.now() - lastGames > 60e3) {
       await rec.refreshGames(); lastGames = Date.now();
       const live = rec.live(), pend = rec.pending();
-      console.log(`${new Date().toISOString()} live: ${live.map(g => g.name).join(", ") || "none"} | upcoming: ${pend.length} | markets: ${rec.markets.size} | crossings: ${rec.crossings.length}`);
+      console.log(`${new Date().toISOString()} live: ${live.map(g => `${g.league} ${g.name}${g.suffix ? "" : " (no Kalshi event)"}`).join(", ") || "none"} | upcoming: ${pend.length} | markets: ${rec.markets.size} | crossings: ${rec.crossings.length}`);
       if (live.length) everLive = true;
-      if (!live.length && !pend.length) { if (everLive) break; console.log("No NBA games live or starting within 4 hours."); break; }
+      if (!live.length && !pend.length) { if (!everLive) console.log("No NBA/NFL games live or starting within 4 hours."); break; }
     }
     const t0 = Date.now();
-    await Promise.all([rec.pollKalshi(), ...rec.live().map(g => rec.pollFeed(g))]);
+    await Promise.all(rec.live().filter(g => g.suffix).map(g => rec.pollFeed(g)));
+    if (Date.now() - lastLive > LIVE_EVERY * 1e3 && rec.live().length) {
+      lastLive = Date.now(); await mkdir(OUT_DIR, { recursive: true }); await writeFile(`${OUT_DIR}/live.json`, JSON.stringify(rec.liveSnapshot()));
+    }
     if (Date.now() - lastSave > 10 * 60e3) { await save(rec); lastSave = Date.now(); }
     await sleep(Math.max(0, POLL_MS - (Date.now() - t0)));
   }

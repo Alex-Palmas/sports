@@ -31,17 +31,34 @@ Kalshi needs no setup and refreshes every 3 hours.
 The **⇄ Arbitrage** view scans every prop for an over at one book plus an under at another that guarantees a profit (margin = 1/(1/d₁ + 1/d₂) − 1 with decimal odds). It shows the stake split for any total, and flags **middles**, where the over line is below the under line so both legs can win, along with how often the player landed in that window over their last 20 games. Arbs need prices from several books, so add `ODDS_API_KEY`. Prices move and books limit arbers, so re-check both legs before betting.
 
 ## Kalshi Latency Study
-Does a free live feed see NBA plays before Kalshi reprices? `scripts/kalshi-latency.mjs` polls a play-by-play feed and Kalshi's public market data about once a second while games are live. For every play that settles a Kalshi player prop (a basket that takes a player past 20 points settles "20+ points" as YES), it records:
-- **when the play happened** (the feed's wallclock stamp),
+`scripts/kalshi-latency.mjs` follows every **NBA and NFL** game live: ESPN's play-by-play against **every Kalshi market for that game** (moneyline, spread, totals, quarters and halves, player props, specials). It finds each game's markets from its Kalshi moneyline event, so it never scans all of Kalshi.
+
+**Game tracker.** For each game, every market's pre-game and final price, low–high range, contracts traded and number of moves, plus how fast each market type starts repricing and gets 50% repriced after key plays (scores, and NFL turnovers). It also records the home team's win probability through the game. Kalshi is polled by market type within its public rate limit of about 4 requests a second: moneyline, spread, total and the headline prop every few seconds, other markets in rotation. Each type's refresh interval is reported, and price changes are timed with Kalshi's own update stamp.
+
+**Prop latency.** For every play that settles a player prop (NBA points/rebounds/assists/threes; NFL passing/rushing/receiving yards, receptions, touchdowns), it records:
+- **when the play happened** (ESPN's wallclock stamp),
 - **when the feed delivered it**,
 - **when Kalshi caught up** (YES bid reached 90¢, or Kalshi closed the market),
-- **the stale price** Kalshi still showed when the feed delivered the play, and the profit per contract after fees.
+- **the full price path** for two minutes: total move, time to start / 50% / 90%, price steps, contracts traded, and how much of the move was left when the feed delivered the play,
+- **the stale price** Kalshi still showed then, and the profit per contract after fees.
 
-It also records how fast Kalshi's game-winner market moves after each scoring play. `.github/workflows/kalshi-latency.yml` runs it every evening at about 6:50pm ET (and late morning on weekends) and commits the results to `site/latency/`, and the app's **Kalshi Latency Study** tab shows them. It only reads data and never places orders.
+NBA game-line moves after each score are analysed the same way, split by situation.
 
-Feeds: `FEED=espn` (default) works from GitHub's servers. `FEED=nba` uses the NBA's official CDN, which is usually faster but blocks cloud servers, so run it from a home connection:
+**Player events.** Every stat change for a player with Kalshi lines is recorded, not just the ones that cross a line, together with the price path of the player's next two lines up. Each game view lists every player with Kalshi lines: live stats against each line, its price now and its change since tip-off.
+
+**Trading simulator.** The tab replays the recorded top of the order book (best bid, ask and size from −10s to +2 min around each play) as paper trades. It never places orders.
+- *Settled props*: buy the line a play just settled, hold to $1.
+- *Player events*: after a stat change, buy the player's next line up and sell after the hold.
+- *Game line*: after a score, buy the scoring team and sell after the hold.
+
+You set your feed delay (the recorded ESPN delay, or a hypothetical faster feed), order delay, max price, contracts and hold time. Fills use the recorded best price and size and include Kalshi's taker fee. Queue position, market impact and stat corrections are not modelled, so results are a best case.
+
+`.github/workflows/kalshi-latency.yml` runs at about 11:45am, 5:15pm and 11pm ET. Each run follows whatever games are live or start within 4 hours. While games are on, it pushes a snapshot to the `live-data` branch every 3 minutes, which the app's **Kalshi Latency Study** tab reads for live games. At the end it commits the full recording to `site/latency/`. It only reads data and never places orders.
+
+Run it yourself (the NBA's own CDN feed only works from a home connection):
 ```sh
-FEED=nba node scripts/kalshi-latency.mjs   # results land in site/latency/
+LEAGUES=nba,nfl node scripts/kalshi-latency.mjs
+FEED=nba LEAGUES=nba node scripts/kalshi-latency.mjs
 ```
 
 ## Deploy
