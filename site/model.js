@@ -239,6 +239,61 @@
     return { score, grade: score >= 75 ? "High" : score >= 50 ? "Medium" : "Low", why: why.sort((a, b) => b.pts - a.pts) };
   }
 
+  // ---- game lines (moneyline / spread / total)
+  // Spread of outcomes per league: margin and total standard deviations (NHL goals use Poisson);
+  // hfa = home edge in points/goals; k = games of shrinkage toward league average.
+  const GAME = { nba: { hfa: 2.5, sdM: 12.5, sdT: 18, k: 6, half: 8 }, nfl: { hfa: 1.5, sdM: 13.5, sdT: 13.5, k: 4, half: 6 },
+    nhl: { hfa: 0.15, poisson: true, k: 8, half: 10 }, mlb: { hfa: 0.15, poisson: true, k: 10, half: 12 } };
+  const GAME_MARKET_WEIGHT = 0.85;   // game lines are sharp: the market dominates
+  /**
+   * Projected score for a game from each side's recent points for/against (recency-weighted, shrunk to
+   * the league average): home = off(home) + def(away) − league avg + home edge.
+   */
+  function gameModel(g, league, lgAvg) {
+    const C = GAME[league] || GAME.nba;
+    const fH = (g.form?.[g.home] || []).slice(0, 15), fA = (g.form?.[g.away] || []).slice(0, 15);
+    if (fH.length < 3 || fA.length < 3) return null;
+    const lg = lgAvg || mean([...fH, ...fA].flatMap(x => [x.pf, x.pa]));
+    const rate = (f, key) => lg + (ewMean(f.map(x => x[key]), C.half) - lg) * f.length / (f.length + C.k);
+    const home = rate(fH, "pf") + rate(fA, "pa") - lg + C.hfa / 2, away = rate(fA, "pf") + rate(fH, "pa") - lg - C.hfa / 2;
+    const total = home + away, margin = home - away, sdM = C.poisson ? Math.sqrt(Math.max(total, 1)) : C.sdM;
+    /** P(team wins by more than l); l can be negative (e.g. +3.5 underdog covers = wins by more than −3.5). */
+    const pBy = (team, l) => { const m = team === g.home ? margin : -margin; return 1 - ncdf((l - m) / sdM); };
+    const pOver = L => C.poisson ? 1 - poissonCdf(Math.floor(L), Math.max(total, 0.1)) : 1 - ncdf((L - total) / C.sdT);
+    return { home, away, total, margin, pWin: team => pBy(team, 0), pBy, pOver };
+  }
+  /** Every game-line price (DraftKings + Kalshi) with our blended probability and EV, best first. */
+  function gameBets(g, league, lgAvg) {
+    const m = gameModel(g, league, lgAvg), out = [];
+    const add = (o) => { if (o.price == null || o.price > 400 || o.price < -400) return;
+      const prob = o.market == null ? o.model : o.model == null ? o.market : (1 - GAME_MARKET_WEIGHT) * o.model + GAME_MARKET_WEIGHT * o.market;
+      if (prob == null) return; out.push({ ...o, prob, ev: ev(prob, o.price) }); };
+    const pair = (a, b) => { const ia = impl(a), ib = impl(b); return ia != null && ib != null ? [ia / (ia + ib), ib / (ia + ib)] : [null, null]; };
+    const sgn = x => (x > 0 ? "+" : "") + x;
+    const dk = g.dk || {}, book = dk.book || "DraftKings", other = t => t === g.home ? g.away : g.home;
+    if (dk.ml?.home != null && dk.ml?.away != null) { const [ph, pa] = pair(dk.ml.home, dk.ml.away);
+      add({ kind: "ml", label: `${g.home} ML`, price: dk.ml.home, book, model: m?.pWin(g.home), market: ph });
+      add({ kind: "ml", label: `${g.away} ML`, price: dk.ml.away, book, model: m?.pWin(g.away), market: pa }); }
+    const sp = dk.spread;
+    if (sp?.home != null && sp.homeOdds != null && sp.awayOdds != null) { const [ph, pa] = pair(sp.homeOdds, sp.awayOdds);
+      add({ kind: "spread", label: `${g.home} ${sgn(sp.home)}`, price: sp.homeOdds, book, model: m?.pBy(g.home, -sp.home), market: ph });
+      add({ kind: "spread", label: `${g.away} ${sgn(-sp.home)}`, price: sp.awayOdds, book, model: m?.pBy(g.away, sp.home), market: pa }); }
+    const tt = dk.total;
+    if (tt?.line != null && tt.over != null && tt.under != null) { const [po, pu] = pair(tt.over, tt.under);
+      add({ kind: "total", label: `Over ${tt.line}`, price: tt.over, book, model: m ? m.pOver(tt.line) : null, market: po });
+      add({ kind: "total", label: `Under ${tt.line}`, price: tt.under, book, model: m ? 1 - m.pOver(tt.line) : null, market: pu }); }
+    const K = g.kalshi || {};
+    for (const [team, q] of Object.entries(K.ml || {})) { const [py] = pair(q.o, q.u);
+      add({ kind: "ml", label: `${team} ML`, price: q.o, book: "Kalshi", model: m?.pWin(team), market: py, href: q.href, vol: q.vol }); }
+    for (const q of K.spread || []) { const [py, pn] = pair(q.o, q.u);
+      add({ kind: "spread", label: `${q.team} -${q.l}`, price: q.o, book: "Kalshi", model: m?.pBy(q.team, q.l), market: py, href: q.href, vol: q.vol });
+      add({ kind: "spread", label: `${other(q.team)} +${q.l}`, price: q.u, book: "Kalshi", model: m ? 1 - m.pBy(q.team, q.l) : null, market: pn, href: q.href, vol: q.vol }); }
+    for (const q of K.total || []) { const [py, pn] = pair(q.o, q.u);
+      add({ kind: "total", label: `Over ${q.l}`, price: q.o, book: "Kalshi", model: m ? m.pOver(q.l) : null, market: py, href: q.href, vol: q.vol });
+      add({ kind: "total", label: `Under ${q.l}`, price: q.u, book: "Kalshi", model: m ? 1 - m.pOver(q.l) : null, market: pn, href: q.href, vol: q.vol }); }
+    return { model: m, bets: out.sort((a, b) => b.ev - a.ev) };
+  }
+
   /** How often two props hit together across games both players played (phi coefficient). */
   function correlation(logsA, statA, lineA, logsB, statB, lineB) {
     const b = Object.fromEntries((logsB || []).map(l => [l.date, l.stats?.[statB]]));
@@ -266,6 +321,6 @@
     return { prob: pp, line: dl };
   }
 
-  const api = { confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
+  const api = { gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropModel = api;
 })(typeof window !== "undefined" ? window : globalThis);

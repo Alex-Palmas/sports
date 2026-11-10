@@ -87,3 +87,24 @@ test("confidence: clean prop is High; injury, thin market and big disagreement p
   assert.equal(bad.grade, "Low");
   assert.ok(bad.why.some(w => /disagree/.test(w.txt)) && bad.why.some(w => /questionable/.test(w.txt)));
 });
+
+test("game model: stronger home side is favored, probabilities consistent, bets priced", () => {
+  const form = (pf, pa) => Array.from({ length: 10 }, (_, i) => ({ date: `2026-10-${String(30 - i).padStart(2, "0")}`, pf, pa }));
+  const g = { home: "NY", away: "MIL", form: { NY: form(120, 105), MIL: form(108, 116) },
+    dk: { book: "DraftKings", ml: { home: -400, away: 320 }, spread: { home: -9.5, homeOdds: -110, awayOdds: -110 }, total: { line: 224.5, over: -110, under: -110 } },
+    kalshi: { ml: { NY: { o: -300, u: 240 } }, spread: [{ team: "NY", l: 9.5, o: -105, u: -115 }], total: [{ l: 224.5, o: -110, u: -110 }] } };
+  const m = M.gameModel(g, "nba");
+  assert.ok(m.margin > 5 && m.pWin("NY") > 0.6);
+  assert.ok(Math.abs(m.pWin("NY") + m.pWin("MIL") - 1) < 1e-9);
+  assert.ok(Math.abs(m.pBy("NY", 9.5) + m.pBy("MIL", -9.5) - 1) < 1e-9);
+  assert.ok(m.pOver(200) > m.pOver(240));
+  const { bets } = M.gameBets(g, "nba");
+  assert.ok(bets.length >= 8 && bets.every(b => b.prob > 0 && b.prob < 1));
+  assert.ok(bets[0].ev >= bets[bets.length - 1].ev);
+  // the blend leans on the market: a 50/50 market total stays near 50%
+  const ov = bets.find(b => b.label === "Over 224.5" && b.book === "DraftKings");
+  assert.ok(Math.abs(ov.prob - 0.5) < 0.08);
+  // hockey uses Poisson for goals
+  const h = M.gameModel({ home: "TOR", away: "COL", form: { TOR: form(3, 3), COL: form(3.4, 2.8) } }, "nhl");
+  assert.ok(h.total > 5 && h.total < 7.5 && h.pOver(6.5) > 0.2 && h.pOver(6.5) < 0.7);
+});

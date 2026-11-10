@@ -168,7 +168,8 @@
       if (!s.players.length) b.classList.add("off");
       if (!s.players.length) b.title = s.note || "No upcoming games";
       b.setAttribute("role", "tab");
-      b.onclick = () => { state.sport = k; state.stat = "all"; state.sel = null; state.game = null; state.day = null; store.set("sport", k); renderAll(); };
+      b.onclick = () => { state.sport = k; state.stat = "all"; state.sel = null; state.game = null; state.day = null; store.set("sport", k); renderAll();
+        if (state.view === "games") window.PropGames.render($("#gamesView"), DATA, api); };
       nav.append(b);
     }
     const sf = $("#statFilter"); sf.innerHTML = `<option value="all">All props</option>` + sport().stats.map(s => `<option value="${s.key}">${esc(s.label)}</option>`).join("");
@@ -504,6 +505,7 @@
       }
     }
     strip.innerHTML = html;
+    renderGamePanel();
     const after = () => {
       if (state.view && state.view !== "props") setView("props");
       // keep the open prop only if it's still in the list
@@ -532,6 +534,15 @@
       renderStatStrip(); renderList(); renderDetail();
     });
     strip.querySelector(".active")?.scrollIntoView({ block: "nearest", inline: "center" });
+  }
+
+  /** The picked game's lines above the props list. */
+  function renderGamePanel() {
+    const box = $("#gamePanel"); if (!box) return;
+    const g = state.game && (sport().games || []).find(x => window.PropGames.gk(x) === state.game);
+    if (!g) { box.innerHTML = ""; return; }
+    box.innerHTML = window.PropGames.card(g, state.sport, api, { compact: true, lgAvg: window.PropGames.lgAvgOf(sport().games || []) });
+    box.querySelector("[data-full]")?.addEventListener("click", e => { api.focusGame = e.currentTarget.dataset.full; setView("games"); });
   }
 
   function renderAll() { renderTabs(); renderGames(); renderList(); renderDetail(); }
@@ -599,6 +610,7 @@
     $("#cryptoView").hidden = v !== "crypto";
     $("#edgeView").hidden = v !== "edge";
     $("#betsView").hidden = v !== "bets";
+    $("#gamesView").hidden = v !== "games";
     document.querySelector(".layout").hidden = v !== "props";
     // Arbitrage, the latency study and the crypto bot live under one "Testing" tab
     const testing = ["arb", "lat", "crypto"].includes(v);
@@ -609,12 +621,13 @@
     const navKey = testing ? "testing" : v;
     document.querySelectorAll("#viewNav .view-btn").forEach(b => { const on = b.dataset.view === navKey; b.classList.toggle("active", on); b.setAttribute("aria-current", on ? "page" : "false"); });
     document.body.dataset.view = v;
-    if (v !== "props") document.querySelectorAll("#sportTabs button").forEach(b => b.classList.remove("active"));
+    if (v !== "props" && v !== "games") document.querySelectorAll("#sportTabs button").forEach(b => b.classList.remove("active"));
     if (v === "arb") renderArbs();
     else if (v === "lat") window.PropLatency.render($("#latView"));
     else if (v === "crypto") window.PropCrypto.render($("#cryptoView"));
     else if (v === "edge") window.PropEdge.render($("#edgeView"), DATA, api);
     else if (v === "bets") window.PropBets.render($("#betsView"), DATA, api);
+    else if (v === "games") { renderTabs(); window.PropGames.render($("#gamesView"), DATA, api); }
     else renderTabs();
     window.scrollTo(0, 0);
     try { if (location.hash.slice(1) !== (v === "props" ? "" : v)) history.replaceState(null, "", v === "props" ? location.pathname : "#" + v); } catch {}
@@ -641,7 +654,7 @@
   });
   // shared helpers for the Edge Board and My Bets views
   const api = {
-    avatar,
+    avatar, teamLogo, sport: () => state.sport, focusGame: null,
     openProp(sp, pid, k) { setView("props"); state.sport = sp; state.stat = "all"; store.set("sport", sp); renderTabs(); select(pid, k); },
   };
   window.PropBets.onChange = () => { if (state.view === "bets") window.PropBets.render($("#betsView"), DATA, api); };
@@ -659,14 +672,14 @@
   document.body.dataset.view = "props";
   window.PropLatency.wire($("#latView"));
   ["#arbStake", "#arbMin", "#arbSport"].forEach(id => $(id).addEventListener("input", renderArbs));
-  $("#sportTabs").addEventListener("click", () => { if (state.view && state.view !== "props") setView("props"); }, true);
+  $("#sportTabs").addEventListener("click", () => { if (state.view && state.view !== "props" && state.view !== "games") setView("props"); }, true);
   // open a section from the link (#arb, #lat, #crypto)
   const startView = location.hash.slice(1);
-  if (["arb", "lat", "crypto", "edge", "bets", "testing"].includes(startView)) setTimeout(() => setView(startView === "testing" ? store.get("lastTest", "arb") : startView), 0);
+  if (["arb", "lat", "crypto", "edge", "bets", "games", "testing"].includes(startView)) setTimeout(() => setView(startView === "testing" ? store.get("lastTest", "arb") : startView), 0);
   // follow links to a section while the page is open (#edge, #bets, #arb, #lat, #crypto)
   window.addEventListener("hashchange", () => {
     const h = location.hash.slice(1);
-    if (["arb", "lat", "crypto", "edge", "bets"].includes(h) && h !== state.view) setView(h);
+    if (["arb", "lat", "crypto", "edge", "bets", "games"].includes(h) && h !== state.view) setView(h);
     else if (h === "testing") setView(state.lastTest || store.get("lastTest", "arb"));
     else if (!h && state.view !== "props") setView("props");
   });
