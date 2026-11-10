@@ -474,35 +474,34 @@
     return out;
   }
 
-  /** The day's matchups across the top: pick a day, tap a game to see only that game's props. */
+  /** The day's matchups across the top: a day cell ("Today · 6 GAMES") then that day's games,
+   *  each card two stacked teams with logos and the start time; later days follow in the same strip. */
   function renderGames() {
     const strip = $("#gamesStrip"), s = sport();
     const games = new Map();
     for (const p of s.players) {
       const key = gameKey(p);
-      let g = games.get(key);
-      if (!g) { const home = p.home ? p.team : p.opp, away = p.home ? p.opp : p.team; g = { key, home, away, date: p.gameDate, day: dayKey(p.gameDate), odds: p.game, props: 0 }; games.set(key, g); }
-      g.props += Object.keys(p.lines || {}).length;
-      if (p.home && p.game) g.odds = p.game;
+      if (!games.has(key)) { const home = p.home ? p.team : p.opp, away = p.home ? p.opp : p.team; games.set(key, { key, home, away, date: p.gameDate, day: dayKey(p.gameDate) }); }
     }
     if (state.game && !games.has(state.game)) state.game = null;
-    const days = gameDays(), day = activeDay();
-    const list = [...games.values()].filter(g => day === "all" || g.day === day).sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.home.localeCompare(b.home));
     if (!games.size) { strip.innerHTML = ""; strip.hidden = true; return; }
     strip.hidden = false;
+    const days = gameDays(), day = activeDay();
     const today = dayKey(new Date().toISOString()), tomorrow = dayKey(new Date(Date.now() + 86400e3).toISOString());
-    const dayLabel = d => d === "all" ? "All days" : d === today ? "Today" : d === tomorrow ? "Tomorrow" : new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    const dayLabel = d => d === today ? "Today" : d === tomorrow ? "Tomorrow" : new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
     const now = Date.now();
-    let html = days.length > 1 ? `<div class="gs-days" role="tablist" aria-label="Day">${[...days, "all"].map(d => `<button class="gs-daybtn${d === day ? " active" : ""}" role="tab" aria-selected="${d === day}" data-day="${d}">${esc(dayLabel(d))}<span>${[...games.values()].filter(g => d === "all" || g.day === d).length} games</span></button>`).join("")}</div>` : `<span class="gs-day">${esc(day ? dayLabel(day) : "")}</span>`;
-    html += `<button class="gs-all${state.game ? "" : " active"}" data-game="" aria-pressed="${!state.game}"><b>All games</b><span>${list.length} game${list.length === 1 ? "" : "s"}</span></button>`;
-    let sepDay = null;
-    for (const g of list) {
-      if (day === "all" && g.day !== sepDay) { sepDay = g.day; html += `<span class="gs-day">${esc(dayLabel(g.day))}</span>`; }
-      const t = g.date ? new Date(g.date) : null, live = t && t.getTime() <= now && now - t.getTime() < 4 * 3600e3;
-      const line = g.odds ? [g.odds.details, g.odds.total ? `O/U ${g.odds.total}` : ""].filter(Boolean).join(" · ") : "";
-      html += `<button class="gs-game${state.game === g.key ? " active" : ""}" data-game="${esc(g.key)}" aria-pressed="${state.game === g.key}" title="${esc(g.away)} at ${esc(g.home)}">
-        <span class="gs-teams"><span class="gs-team">${teamLogo(g.away, 20)}<b>${esc(g.away)}</b></span><span class="gs-at">@</span><span class="gs-team">${teamLogo(g.home, 20)}<b>${esc(g.home)}</b></span></span>
-        <span class="gs-meta">${live ? `<span class="gs-live">LIVE</span>` : t ? esc(t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })) : ""}${line ? ` · ${esc(line)}` : ""}</span></button>`;
+    let html = "";
+    for (const d of days) {
+      const list = [...games.values()].filter(g => g.day === d).sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.home.localeCompare(b.home));
+      const dayOn = !state.game && (day === d || day === "all");
+      html += `<button class="gs-daycell${dayOn ? " active" : ""}" data-day="${d}" aria-pressed="${dayOn}" title="${dayOn && day === d && days.length > 1 ? "Tap again for every day" : `All ${esc(dayLabel(d))} games`}"><span>${esc(dayLabel(d))}</span><small>${list.length} GAME${list.length === 1 ? "" : "S"}</small></button>`;
+      for (const g of list) {
+        const t = g.date ? new Date(g.date) : null, live = t && t.getTime() <= now && now - t.getTime() < 4 * 3600e3;
+        const on = state.game === g.key, dim = !on && !(day === "all" || day === d) && !state.game;
+        html += `<button class="gs-game${on ? " active" : ""}${dim ? " dim" : ""}" data-game="${esc(g.key)}" data-gday="${d}" aria-pressed="${on}" title="${esc(g.away)} at ${esc(g.home)}">
+          <span class="gs-rows"><span class="gs-row">${teamLogo(g.away, 22)}<b>${esc(g.away)}</b></span><span class="gs-row">${teamLogo(g.home, 22)}<b>${esc(g.home)}</b></span></span>
+          <span class="gs-time">${live ? `<span class="gs-live">LIVE</span>` : t ? esc(t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })) : ""}</span></button>`;
+      }
     }
     strip.innerHTML = html;
     const after = () => {
@@ -513,9 +512,12 @@
       renderGames(); renderList(); if (!state.sel) renderDetail();
       if (window.innerWidth <= 900) document.querySelector(".layout").classList.remove("show-detail");
     };
-    strip.querySelectorAll("button[data-day]").forEach(b => b.onclick = () => { state.day = b.dataset.day; state.game = null; after(); });
-    strip.querySelectorAll("button[data-game]").forEach(b => b.onclick = () => { const k = b.dataset.game || null; state.game = state.game === k ? null : k; after(); });
-    strip.querySelector(".gs-game.active")?.scrollIntoView({ block: "nearest", inline: "center" });
+    // day cell: that day's games; tapping the selected day again shows every day (separated)
+    strip.querySelectorAll("button[data-day]").forEach(b => b.onclick = () => {
+      const d = b.dataset.day; state.day = !state.game && activeDay() === d && days.length > 1 ? "all" : d; state.game = null; after(); });
+    strip.querySelectorAll("button[data-game]").forEach(b => b.onclick = () => {
+      const k = b.dataset.game; if (state.game === k) state.game = null; else { state.game = k; state.day = b.dataset.gday; } after(); });
+    (strip.querySelector(".gs-game.active") || strip.querySelector(".gs-daycell.active"))?.scrollIntoView({ block: "nearest", inline: state.game ? "center" : "start" });
   }
 
   /** Stat chips across the top: All · Points · Rebounds · Assists · 3PTM · P+R · P+A · R+A · PRA … */
