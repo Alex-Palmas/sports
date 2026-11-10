@@ -92,3 +92,12 @@ h2{margin:0 0 10px;font-size:15px}
 .tag.inj{background:var(--red);border-color:var(--red);color:#fff;font-size:11px}
 .foot a{color:inherit}
 .sports button.off{opacity:.45}
+.check{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px;cursor:pointer}
+.check input{width:auto;margin:0;accent-color:var(--accent)}
+.best-row{margin-top:2px}
+.best-row b{color:var(--text)}
+.table-wrap{overflow-x:auto}
+table.shop td small{display:block;font-size:10px;font-weight:700}
+table.shop td.best{background:rgba(34,197,94,.16);box-shadow:inset 0 0 0 1px var(--accent);font-weight:700}
+table.shop tr.valrow td:first-child{box-shadow:inset 3px 0 0 var(--amber)}
+table.shop td.top{font-weight:800;color:var(--hit)}

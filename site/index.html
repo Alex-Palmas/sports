@@ -26,11 +26,13 @@
           <select id="statFilter" aria-label="Stat"></select>
           <select id="sortBy" aria-label="Sort">
             <option value="hit">Sort: Hit rate (L10)</option>
+            <option value="value">Sort: Best value (EV)</option>
             <option value="edge">Sort: Avg vs line</option>
             <option value="streak">Sort: Streak</option>
             <option value="name">Sort: Name</option>
           </select>
         </div>
+        <label class="check"><input type="checkbox" id="marketOnly" /> Only props with sportsbook / Kalshi prices</label>
         <div class="row seg" id="sideToggle">
           <button data-side="over" class="active">Over</button>
           <button data-side="under">Under</button>

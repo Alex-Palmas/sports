@@ -96,8 +96,16 @@
           const o = -110 + Math.round((rnd() - 0.5) * 50 / 5) * 5;
           odds[k] = { over: o, under: -220 - o };
         });
+        // demo line-shopping quotes from a few books (fictional prices)
+        const market = {};
+        for (const [k, L] of Object.entries(lines)) {
+          market[k] = ["DraftKings", "FanDuel", "BetMGM", "Caesars", "Kalshi"].filter(() => rnd() > 0.25).map(b => {
+            const l = L + (rnd() < 0.25 ? (rnd() < 0.5 ? -1 : 1) : 0), o = -110 + Math.round((rnd() - 0.5) * 40 / 5) * 5;
+            return { b, k: b.toLowerCase(), l: Math.max(0.5, l), o, u: -220 - o + Math.round((rnd() - 0.5) * 10) };
+          });
+        }
         const g = slate[t.abbr];
-        players.push({ id: key + "-" + (++pid), name, team: t.abbr, pos, opp: g.opp, home: g.home, gameTime: g.time, lines, odds, logs, oppRank: oppRanks[g.opp] });
+        players.push({ id: key + "-" + (++pid), name, team: t.abbr, pos, opp: g.opp, home: g.home, gameTime: g.time, lines, odds, market, logs, oppRank: oppRanks[g.opp] });
       }
     }
     out.sports[key] = { name: cfg.name, teams, stats, players, teamCount: teams.length };

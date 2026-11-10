@@ -3,15 +3,20 @@
  * Builds site/data.json with real player data.
  *
  *  - Schedules, rosters and game logs: ESPN's public site API (free, no key).
- *  - Sportsbook prop lines: The Odds API (https://the-odds-api.com), only when
- *    ODDS_API_KEY is set. Without it, every line is a projection built from the
- *    player's recent games and is labeled as such in the app.
+ *  - Sportsbook prop lines (DraftKings, FanDuel, BetMGM, Caesars, ...): The Odds API
+ *    (https://the-odds-api.com), only when ODDS_API_KEY is set. One request returns
+ *    every book in a region for the same credit cost.
+ *  - Kalshi prediction-market prices: Kalshi's public market-data API (free, no key).
+ *  Props with no market anywhere get a projected line, labeled as such in the app.
  *
  * Env:
  *   ODDS_API_KEY        optional. The Odds API key.
  *   FETCH_ODDS=1        actually spend Odds API credits on this run (otherwise
  *                       lines come from the cached odds file, if any).
  *   ODDS_MAX_CREDITS    max credits to spend per run (default 16 ≈ 480/month).
+ *   ODDS_REGIONS        Odds API regions (default "us"; e.g. "us,us2" adds Hard Rock,
+ *                       Fliff, ... at 2x the credit cost).
+ *   KALSHI=0            skip Kalshi.
  *   ODDS_CACHE          path of the odds cache file (default .cache/odds.json).
  *   OUT                 output path (default site/data.json).
  */
@@ -23,6 +28,8 @@ const ODDS_KEY = process.env.ODDS_API_KEY || "";
 const FETCH_ODDS = process.env.FETCH_ODDS === "1" || process.env.FETCH_ODDS === "true";
 const ODDS_MAX_CREDITS = +(process.env.ODDS_MAX_CREDITS || 16);
 const ODDS_CACHE = process.env.ODDS_CACHE || ".cache/odds.json";
+const ODDS_REGIONS = (process.env.ODDS_REGIONS || "us").split(",").map(x => x.trim()).filter(Boolean);
+const KALSHI = process.env.KALSHI !== "0";
 
 const SITE = "https://site.api.espn.com/apis/site/v2/sports";
 const WEB = "https://site.web.api.espn.com/apis/common/v3/sports";
@@ -81,6 +88,7 @@ const SPORTS = {
     propStats: () => ["pts", "reb", "ast", "fg3", "pra", "stl", "blk"],
     markets: { player_points: "pts", player_rebounds: "reb", player_assists: "ast", player_threes: "fg3", player_points_rebounds_assists: "pra", player_steals: "stl", player_blocks: "blk" },
     oddsMarkets: ["player_points", "player_rebounds", "player_assists"],
+    kalshi: { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3", KXNBAPRA: "pra", KXNBASTL: "stl", KXNBABLK: "blk" },
   },
   nfl: {
     name: "NFL", path: "football/nfl", lookAheadDays: 7, oddsKey: "americanfootball_nfl",
@@ -97,6 +105,7 @@ const SPORTS = {
     propStats: p => p.pos === "QB" ? ["pass_yds", "pass_td", "rush_yds"] : p.pos === "RB" ? ["rush_yds", "rec_yds", "rec", "td"] : ["rec_yds", "rec", "td"],
     markets: { player_pass_yds: "pass_yds", player_pass_tds: "pass_td", player_rush_yds: "rush_yds", player_reception_yds: "rec_yds", player_receptions: "rec", player_anytime_td: "td" },
     oddsMarkets: ["player_pass_yds", "player_rush_yds", "player_reception_yds"],
+    kalshi: { KXNFLPASSYDS: "pass_yds", KXNFLRSHYDS: "rush_yds", KXNFLRECYDS: "rec_yds", KXNFLREC: "rec", KXNFLANYTD: "td" },
   },
   nhl: {
     name: "NHL", path: "hockey/nhl", lookAheadDays: 1, oddsKey: "icehockey_nhl",
@@ -108,6 +117,7 @@ const SPORTS = {
     propStats: () => ["sog", "pts", "g", "ast"],
     markets: { player_shots_on_goal: "sog", player_points: "pts", player_goals: "g", player_assists: "ast" },
     oddsMarkets: ["player_shots_on_goal", "player_points"],
+    kalshi: { KXNHLPTS: "pts", KXNHLAST: "ast", KXNHLANYGOAL: "g", KXNHLGOAL: "g" },
   },
   mlb: {
     name: "MLB", path: "baseball/mlb", lookAheadDays: 1, oddsKey: "baseball_mlb",
@@ -119,6 +129,7 @@ const SPORTS = {
     propStats: () => ["hits", "tb", "rbi", "runs", "hrr", "hr", "so"],
     markets: { batter_hits: "hits", batter_total_bases: "tb", batter_rbis: "rbi", batter_runs_scored: "runs", batter_hits_runs_rbis: "hrr", batter_home_runs: "hr", batter_strikeouts: "so" },
     oddsMarkets: ["batter_hits", "batter_total_bases"],
+    kalshi: { KXMLBTB: "tb", KXMLBHR: "hr", KXMLBRBI: "rbi" },
   },
 };
 
@@ -175,14 +186,42 @@ async function gameLog(cfg, athleteId, season) {
   return out;
 }
 
-// ---------------------------------------------------------------- Odds API
-async function loadOddsCache() { try { return JSON.parse(await readFile(ODDS_CACHE, "utf8")); } catch { return { fetched: null, lines: {} }; } }
+// ---------------------------------------------------------------- markets
+// Every quote is normalized to { b: book title, k: book key, l: line, o: over price, u: under price,
+// t: game start ISO } (American odds), stored under quotes["sport|normalizedName|stat"].
+export const toAmerican = p => p >= 0.5 ? -Math.round(100 * p / (1 - p)) : Math.round(100 * (1 - p) / p);
+const addQuote = (quotes, id, q) => (quotes[id] ||= []).push(q);
 
-async function fetchOdds(cache) {
+async function loadOddsCache() { try { return JSON.parse(await readFile(ODDS_CACHE, "utf8")); } catch { return { fetched: null, quotes: {} }; } }
+
+/** Parse one Odds API event-odds response into quotes (exported for tests). */
+export function parseOddsEvent(sport, cfg, ev, quotes) {
+  for (const bk of ev.bookmakers || []) for (const m of bk.markets || []) {
+    const stat = cfg.markets[m.key]; if (!stat) continue;
+    const byPlayerLine = {};
+    for (const o of m.outcomes || []) {
+      if (!o.description) continue;
+      const line = o.point ?? 0.5;
+      const q = byPlayerLine[`${o.description}|${line}`] ||= { b: bk.title, k: bk.key, l: line, t: ev.commence_time, name: o.description };
+      if (o.name === "Over" || o.name === "Yes") q.o = o.price;
+      if (o.name === "Under" || o.name === "No") q.u = o.price;
+    }
+    // a book can list several lines for a player; keep its main one (closest to even money) as "main"
+    const groups = {};
+    for (const q of Object.values(byPlayerLine)) (groups[q.name] ||= []).push(q);
+    for (const [name, qs] of Object.entries(groups)) {
+      const juice = q => Math.abs((q.o ?? -110) - (q.u ?? -110)) + (q.o == null || q.u == null ? 50 : 0);
+      qs.sort((a, b) => juice(a) - juice(b));
+      qs.forEach((q, i) => { delete q.name; if (i) q.alt = 1; addQuote(quotes, `${sport}|${normName(name)}|${stat}`, q); });
+    }
+  }
+}
+
+async function fetchOdds() {
   const O = "https://api.the-odds-api.com/v4";
-  let spent = 0; const lines = {}; let remaining = null;
+  let spent = 0, remaining = null; const quotes = {};
   const evLists = await pool(Object.entries(SPORTS), 2, async ([key, cfg]) => {
-    const r = await getJSON(`${O}/sports/${cfg.oddsKey}/events?apiKey=${ODDS_KEY}`, 2); // events list costs 0 credits
+    const r = await getJSON(`${O}/sports/${cfg.oddsKey}/events?apiKey=${ODDS_KEY}`, 2); // listing events costs 0 credits
     return (r?.json || []).map(e => ({ ...e, sport: key }));
   });
   const soon = Date.now() + 36 * 3600e3;
@@ -192,32 +231,52 @@ async function fetchOdds(cache) {
   const bySport = {}; events.forEach(e => (bySport[e.sport] ||= []).push(e));
   const queue = []; for (let i = 0; Object.values(bySport).some(a => a[i]); i++) for (const a of Object.values(bySport)) if (a[i]) queue.push(a[i]);
   for (const e of queue) {
-    const cfg = SPORTS[e.sport]; const markets = cfg.oddsMarkets;
-    if (spent + markets.length > ODDS_MAX_CREDITS) break;
-    const r = await getJSON(`${O}/sports/${cfg.oddsKey}/events/${e.id}/odds?apiKey=${ODDS_KEY}&regions=us&markets=${markets.join(",")}&oddsFormat=american`, 1);
-    spent += markets.length;
+    const cfg = SPORTS[e.sport]; const cost = cfg.oddsMarkets.length * ODDS_REGIONS.length;
+    if (spent + cost > ODDS_MAX_CREDITS) break;
+    const r = await getJSON(`${O}/sports/${cfg.oddsKey}/events/${e.id}/odds?apiKey=${ODDS_KEY}&regions=${ODDS_REGIONS.join(",")}&markets=${cfg.oddsMarkets.join(",")}&oddsFormat=american`, 1);
+    spent += cost;
     if (!r) continue;
     remaining = r.headers.get("x-requests-remaining") ?? remaining;
-    // prefer one consistent book per player/market: first book in the list that has it
-    for (const bk of r.json.bookmakers || []) for (const m of bk.markets || []) {
-      const stat = cfg.markets[m.key]; if (!stat) continue;
-      for (const o of m.outcomes || []) {
-        if (!o.description) continue;
-        const id = `${e.sport}|${normName(o.description)}|${stat}`;
-        const cur = lines[id] ||= { book: bk.title, line: o.point ?? 0.5 };
-        if (cur.book !== bk.title) continue;
-        if (o.name === "Over" || o.name === "Yes") cur.over = o.price;
-        if (o.name === "Under" || o.name === "No") cur.under = o.price;
-        if (o.point != null) cur.line = o.point;
-      }
+    parseOddsEvent(e.sport, cfg, r.json, quotes);
+  }
+  console.log(`odds api: ${queue.length} upcoming events, spent ~${spent} credits, ${Object.keys(quotes).length} player props, remaining=${remaining}`);
+  return { fetched: new Date().toISOString(), quotes };
+}
+
+// Kalshi: each market is "Player: N+ stat" (strike N-0.5). Buying YES = over, NO = under.
+// Prices are converted to American odds after Kalshi's taker fee (~0.07·p·(1-p) per contract).
+const KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2";
+export const kalshiFee = p => Math.ceil(0.07 * p * (1 - p) * 100) / 100;
+export function parseKalshiMarket(sport, stat, m, quotes) {
+  const ya = parseFloat(m.yes_ask_dollars), na = parseFloat(m.no_ask_dollars);
+  if (!(ya > 0.03 && ya < 0.97 && na > 0.03 && na < 0.97)) return;      // no real two-sided market
+  if (ya + na > 1.12) return;                                          // too thin / wide
+  const name = String(m.title || "").split(":")[0].trim(); if (!name) return;
+  const line = m.floor_strike != null ? +m.floor_strike : (parseFloat(String(m.title).split(":")[1]) || 1) - 0.5;
+  if (m.strike_type && m.strike_type !== "greater") return;
+  addQuote(quotes, `${sport}|${normName(name)}|${stat}`, {
+    b: "Kalshi", k: "kalshi", l: line, o: toAmerican(ya + kalshiFee(ya)), u: toAmerican(na + kalshiFee(na)),
+    t: m.expected_expiration_time || m.close_time, vol: Math.round(parseFloat(m.volume_fp || 0)),
+  });
+}
+
+async function fetchKalshi() {
+  const quotes = {}; let n = 0;
+  for (const [sport, cfg] of Object.entries(SPORTS)) for (const [series, stat] of Object.entries(cfg.kalshi || {})) {
+    let cursor = "";
+    for (let page = 0; page < 20; page++) {
+      const r = await get(`${KALSHI_API}/markets?series_ticker=${series}&status=open&limit=200${cursor ? `&cursor=${cursor}` : ""}`);
+      await new Promise(res => setTimeout(res, 120)); // stay well under Kalshi's public rate limit
+      for (const m of r?.markets || []) { parseKalshiMarket(sport, stat, m, quotes); n++; }
+      cursor = r?.cursor; if (!cursor) break;
     }
   }
-  console.log(`odds: ${queue.length} upcoming events, spent ~${spent} credits, ${Object.keys(lines).length} lines, remaining=${remaining}`);
-  return { fetched: new Date().toISOString(), lines };
+  console.log(`kalshi: scanned ${n} markets, ${Object.keys(quotes).length} player props with a two-sided market`);
+  return quotes;
 }
 
 // ---------------------------------------------------------------- build
-async function buildSport(key, cfg, odds) {
+async function buildSport(key, cfg, quotes) {
   const teamsRes = await get(`${SITE}/${cfg.path}/teams`);
   const teams = (teamsRes?.sports?.[0]?.leagues?.[0]?.teams || []).map(({ team: t }) => ({ id: t.id, abbr: t.abbreviation, name: t.displayName, color: "#" + (t.color || "64748b"), logo: t.logos?.[0]?.href }));
   const games = await upcomingGames(cfg);
@@ -246,10 +305,27 @@ async function buildSport(key, cfg, odds) {
       logs.sort((x, y) => y.date.localeCompare(x.date));
       logs = logs.slice(0, 40);
       if (!logs.length) continue;
-      const lines = {}, oddsOut = {}, src = {};
+      const lines = {}, oddsOut = {}, src = {}, market = {};
+      const gameT = new Date(side.g.date).getTime();
       for (const s of cfg.propStats(p)) {
-        const book = odds.lines[`${key}|${normName(p.name)}|${s}`];
-        if (book) { lines[s] = book.line; oddsOut[s] = { over: book.over ?? null, under: book.under ?? null, book: book.book }; src[s] = "book"; continue; }
+        // quotes for this player/stat whose game is this one (Kalshi lists finished/live games too)
+        const qs = (quotes[`${key}|${normName(p.name)}|${s}`] || []).filter(q => !q.t || Math.abs(new Date(q.t).getTime() - gameT) < 16 * 3600e3);
+        if (qs.length) {
+          market[s] = qs.map(({ t, ...q }) => q);
+          const books = qs.filter(q => q.k !== "kalshi" && !q.alt).map(q => q.l).sort((a, b) => a - b);
+          let line;
+          if (books.length) line = books[Math.floor((books.length - 1) / 2)];               // consensus (median) book line
+          else { // Kalshi only: the strike priced closest to 50/50
+            const imp = a => a < 0 ? -a / (100 - a) : 100 / (a + 100);
+            line = qs.slice().sort((a, b) => Math.abs(imp(a.o) - 0.5) - Math.abs(imp(b.o) - 0.5))[0].l;
+          }
+          lines[s] = line; src[s] = "book";
+          const at = qs.filter(q => q.l === line);
+          const best = side => at.reduce((m, q) => (q[side] != null && (m == null || q[side] > m[side]) ? q : m), null);
+          const bo = best("o"), bu = best("u");
+          oddsOut[s] = { over: bo?.o ?? null, under: bu?.u ?? null, overBook: bo?.b, underBook: bu?.b };
+          continue;
+        }
         const sample = logs.slice(0, 20).map(l => l.stats[s]);
         const m = mean(sample);
         if (s === "td" || s === "hr" || s === "g") { if (m < 0.15) continue; lines[s] = 0.5; }
@@ -262,7 +338,7 @@ async function buildSport(key, cfg, odds) {
         id: `${key}-${p.id}`, espnId: p.id, name: p.name, team: side.team.abbreviation, pos: p.pos, injury: p.injury,
         opp: side.opp.abbreviation, home: side.home, gameDate: side.g.date,
         headshot: `https://a.espncdn.com/i/headshots/${key}/players/full/${p.id}.png`,
-        lines, odds: oddsOut, lineSource: src, logs,
+        lines, odds: oddsOut, lineSource: src, market, logs,
       });
     }
   });
@@ -290,15 +366,21 @@ async function buildSport(key, cfg, odds) {
 async function main() {
   let odds = await loadOddsCache();
   if (ODDS_KEY && FETCH_ODDS) {
-    try { odds = await fetchOdds(odds); await mkdir(dirname(ODDS_CACHE), { recursive: true }); await writeFile(ODDS_CACHE, JSON.stringify(odds)); }
+    try { odds = await fetchOdds(); await mkdir(dirname(ODDS_CACHE), { recursive: true }); await writeFile(ODDS_CACHE, JSON.stringify(odds)); }
     catch (e) { console.warn("odds fetch failed, using cache:", e.message); }
   }
-  const out = { generated: new Date().toISOString(), live: true, oddsFetched: odds.fetched, sports: {} };
+  let kalshi = {}, kalshiFetched = null;
+  if (KALSHI) { try { kalshi = await fetchKalshi(); kalshiFetched = new Date().toISOString(); } catch (e) { console.warn("kalshi failed:", e.message); } }
+  const quotes = { ...(odds.quotes || {}) };
+  for (const [id, qs] of Object.entries(kalshi)) (quotes[id] ||= []).push(...qs);
+
+  const out = { generated: new Date().toISOString(), live: true, sources: { espn: new Date().toISOString(), sportsbooks: odds.fetched || null, kalshi: kalshiFetched }, sports: {} };
   const only = (process.env.SPORTS || "nba,nfl,nhl,mlb").split(",");
   for (const key of only) {
-    try { out.sports[key] = await buildSport(key, SPORTS[key], odds); }
+    try { out.sports[key] = await buildSport(key, SPORTS[key], quotes); }
     catch (e) { console.warn(`${key} failed:`, e); }
-    console.log(`${key}: ${out.sports[key]?.players.length ?? 0} players`);
+    const ps = out.sports[key]?.players || [];
+    console.log(`${key}: ${ps.length} players, ${ps.reduce((a, p) => a + Object.keys(p.market).length, 0)} props with market prices`);
   }
   if (!Object.values(out.sports).some(s => s.players.length)) { console.error("No players fetched; not writing data.json"); process.exit(1); }
   await mkdir(dirname(OUT), { recursive: true });
@@ -306,4 +388,4 @@ async function main() {
   console.log(`wrote ${OUT}`);
 }
 
-main();
+if (import.meta.url === `file://${process.argv[1]}`) main();

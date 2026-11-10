@@ -41,12 +41,16 @@ jobs:
           key: odds-${{ github.run_id }}
           restore-keys: odds-
 
+      - name: Test parsers
+        run: node --test
+
       - name: Fetch real player data
         continue-on-error: true   # if ESPN is down, still deploy (the app falls back to demo data)
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           FETCH_ODDS: ${{ github.event.schedule == '41 15 * * *' || inputs.fetch_odds == true }}
           ODDS_MAX_CREDITS: ${{ vars.ODDS_MAX_CREDITS || '16' }}
+          ODDS_REGIONS: ${{ vars.ODDS_REGIONS || 'us' }}
         run: node scripts/fetch-data.mjs
 
       - uses: actions/cache/save@v4
