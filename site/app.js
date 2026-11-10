@@ -297,7 +297,9 @@
   });
   const theme = store.get("theme", null);
   if (theme) document.documentElement.dataset.theme = theme;
-  $("#themeBtn").onclick = () => { const t = document.documentElement.dataset.theme === "light" ? "dark" : "light"; document.documentElement.dataset.theme = t; store.set("theme", t); };
+  $("#themeBtn").onclick = () => {
+    const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    const t = cur === "light" ? "dark" : "light"; document.documentElement.dataset.theme = t; store.set("theme", t); };
 
   // ---------- arbitrage view ----------
   const money = x => "$" + x.toFixed(2);
