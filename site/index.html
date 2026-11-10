@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PropLab · Player Prop Research</title>
+  <meta name="description" content="Research player props with hit rates, game logs and matchup trends." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2322c55e'/><path d='M8 22l5-6 4 3 7-9' stroke='%23052e16' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M8 22l5-6 4 3 7-9" stroke="#052e16" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Prop<b>Lab</b></span>
+    </div>
+    <nav class="sports" id="sportTabs" role="tablist"></nav>
+    <button class="view-btn" id="arbBtn">⇄ Arbitrage</button>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="filters">
+        <input id="search" type="search" placeholder="Search player or team…" autocomplete="off" />
+        <div class="row">
+          <select id="statFilter" aria-label="Stat"></select>
+          <select id="sortBy" aria-label="Sort">
+            <option value="hit">Sort: Hit rate (L10)</option>
+            <option value="value">Sort: Best value (EV)</option>
+            <option value="edge">Sort: Avg vs line</option>
+            <option value="streak">Sort: Streak</option>
+            <option value="name">Sort: Name</option>
+          </select>
+        </div>
+        <label class="check"><input type="checkbox" id="marketOnly" /> Only props with sportsbook / Kalshi prices</label>
+        <div class="row seg" id="sideToggle">
+          <button data-side="over" class="active">Over</button>
+          <button data-side="under">Under</button>
+        </div>
+      </div>
+      <div class="list-head"><span>Player / Prop</span><span>L5</span><span>L10</span><span>L20</span></div>
+      <ul class="prop-list" id="propList"></ul>
+    </aside>
+
+    <section class="detail" id="detail"></section>
+  </main>
+
+  <section class="arb-view" id="arbView" hidden>
+    <div class="arb-head">
+      <div>
+        <h1>Arbitrage &amp; middles</h1>
+        <p class="pl-sub">Pairs of an <b>over</b> at one book and an <b>under</b> at another priced so that you profit whatever happens. A <b>middle</b> has a lower over line than under line, so both legs win if the result lands in between.</p>
+      </div>
+      <div class="arb-ctrls">
+        <label>Total stake $<input type="number" id="arbStake" value="100" min="1" step="10" /></label>
+        <label>Show <select id="arbMin">
+          <option value="0">Sure profit only (arbs)</option>
+          <option value="-0.02">+ near-arbs within 2% (middles worth a look)</option>
+          <option value="-0.05">+ within 5%</option>
+        </select></label>
+        <label>League <select id="arbSport"><option value="all">All</option></select></label>
+      </div>
+    </div>
+    <div class="card arb-note pl-sub" id="arbNote"></div>
+    <div class="arb-list" id="arbList"></div>
+  </section>
+
+  <footer class="foot">Demo data — fictional players and generated stats for illustration only. Not betting advice.</footer>
+
+  <script src="data.js"></script>
+  <script src="arb.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

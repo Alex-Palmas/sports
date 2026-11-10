@@ -1,0 +1,67 @@
+name: Update data & deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      fetch_odds:
+        description: "Spend The Odds API credits on this run"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 */3 * * *"   # refresh ESPN stats & schedule every 3 hours
+    - cron: "41 15 * * *"    # daily (~10:41 ET): also refresh sportsbook lines
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Odds are fetched at most once a day (free tier = 500 credits/month) and cached between runs.
+      - uses: actions/cache/restore@v4
+        with:
+          path: .cache
+          key: odds-${{ github.run_id }}
+          restore-keys: odds-
+
+      - name: Test parsers
+        run: node --test
+
+      - name: Fetch real player data
+        continue-on-error: true   # if ESPN is down, still deploy (the app falls back to demo data)
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          FETCH_ODDS: ${{ github.event.schedule == '41 15 * * *' || inputs.fetch_odds == true }}
+          ODDS_MAX_CREDITS: ${{ vars.ODDS_MAX_CREDITS || '16' }}
+          ODDS_REGIONS: ${{ vars.ODDS_REGIONS || 'us' }}
+        run: node scripts/fetch-data.mjs
+
+      - uses: actions/cache/save@v4
+        if: always() && hashFiles('.cache/odds.json') != ''
+        with:
+          path: .cache
+          key: odds-${{ github.run_id }}
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4
