@@ -32,6 +32,14 @@
  *
  * Env: LEAGUES (default "nba,nfl"), FEED (espn | nba: the NBA's own CDN, home connection only),
  *      POLL_MS (1000), REQS_PER_SEC (4), MAX_MINUTES (340), LIVE_EVERY (120), OUT_DIR (site/latency).
+ * 3. Live paper trading (feasibility test). The moment the feed delivers a play, the recorder
+ *    asks Kalshi for the market's current price and records a paper fill at the real ask:
+ *      settled  – the line the play just settled: buy YES, hold to the $1 payout
+ *      rung     – after any player stat change: buy his next line up, sell at the bid after PAPER_HOLD s
+ *      gameline – after a score: buy the scoring team's moneyline, sell at the bid after PAPER_HOLD s
+ *    PAPER_QTY contracts (capped by the size offered), never above PAPER_MAX, after Kalshi's
+ *    taker fee. Nothing is ever sent to Kalshi but public price lookups.
+ *
  * Read-only: it never places orders.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -42,6 +50,9 @@ const REQS_PER_SEC = +(process.env.REQS_PER_SEC || 4);
 const MAX_MINUTES = +(process.env.MAX_MINUTES || 340);
 const LIVE_EVERY = +(process.env.LIVE_EVERY || 120);
 const OUT_DIR = process.env.OUT_DIR || "site/latency";
+const PAPER = process.env.PAPER !== "0";
+const PAPER_QTY = +(process.env.PAPER_QTY || 10), PAPER_MAX = +(process.env.PAPER_MAX || 0.90), PAPER_HOLD = +(process.env.PAPER_HOLD || 30);
+const PAPER_MAX_PENDING = 6;          // skip trades rather than starve the market polling
 const LEAGUE_KEYS = (process.env.LEAGUES || "nba,nfl").split(",").map(s => s.trim()).filter(Boolean);
 const KALSHI = "https://api.elections.kalshi.com/trade-api/v2";
 const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports";
@@ -297,6 +308,58 @@ function keyPlay(league, p, teamById, prev) {
   };
 }
 
+// ---------------------------------------------------------------- live paper trading
+export const takerFee = (p, qty) => Math.ceil(0.07 * qty * p * (1 - p) * 100 - 1e-9) / 100;
+/** Paper trader: real-time price lookups, simulated fills. Never places orders. */
+export class PaperTrader {
+  constructor({ fetchMarket = t => getJSON(`${KALSHI}/markets/${t}`).then(r => r?.market ?? null), now = () => Date.now(), wait = sleep } = {}) {
+    this.fetchMarket = fetchMarket; this.now = now; this.wait = wait;
+    this.trades = []; this.pending = 0; this.open = new Set(); this.skipped = { busy: 0, noPrice: 0, tooExpensive: 0, duplicate: 0 };
+  }
+  /** Act on a play the moment the feed delivered it. Returns the trade promise (for tests). */
+  enter(strategy, ticker, info) {
+    const key = `${strategy}|${ticker}`;
+    if (this.open.has(key)) { this.skipped.duplicate++; return null; }
+    if (this.pending >= PAPER_MAX_PENDING) { this.skipped.busy++; return null; }
+    this.open.add(key); this.pending++;
+    return this.run(strategy, ticker, info).finally(() => { this.open.delete(key); this.pending--; });
+  }
+  async run(strategy, ticker, info) {
+    const decided = this.now();
+    const m = await this.fetchMarket(ticker); const filledAt = this.now();
+    const ask = m?.yes_ask_dollars != null ? +m.yes_ask_dollars : null, size = m?.yes_ask_size_fp != null ? +m.yes_ask_size_fp : null;
+    if (m && m.status && !/active|open/i.test(m.status)) { this.skipped.noPrice++; return; } // already closed/decided
+    if (ask == null || ask <= 0 || ask >= 0.995) { this.skipped.noPrice++; return; }
+    if (ask > PAPER_MAX) { this.skipped.tooExpensive++; return; }
+    const qty = Math.max(1, Math.min(PAPER_QTY, size || PAPER_QTY));
+    const t = { strategy, ticker, ...info, play: new Date(info.playT).toISOString(), feedDelay: (info.seenT - info.playT) / 1000,
+      lookupMs: filledAt - decided, entry: ask, qty, entryFee: takerFee(ask, qty), status: "open" };
+    delete t.playT; delete t.seenT;
+    this.trades.push(t);
+    if (strategy === "settled") { // the play already decided it: settles at $1
+      t.exit = 1; t.exitFee = 0; t.status = "settled"; t.pnl = +(qty * (1 - ask) - t.entryFee).toFixed(2); return t;
+    }
+    await this.wait(PAPER_HOLD * 1000);
+    const m2 = await this.fetchMarket(ticker);
+    let bid = m2?.yes_bid_dollars != null ? +m2.yes_bid_dollars : null;
+    if (m2?.status && /settled|finalized|determined/i.test(m2.status) && m2.result) bid = m2.result === "yes" ? 1 : 0;
+    if (bid == null) { t.status = "no exit price"; t.pnl = +(-qty * ask - t.entryFee).toFixed(2); return t; }
+    t.exit = bid; t.exitFee = bid > 0 && bid < 1 ? takerFee(bid, qty) : 0; t.status = "closed";
+    t.pnl = +(qty * (bid - ask) - t.entryFee - t.exitFee).toFixed(2);
+    return t;
+  }
+  report() {
+    const done = this.trades.filter(t => t.pnl != null);
+    const by = {}; for (const t of done) { const x = (by[t.strategy] ||= { strategy: t.strategy, trades: 0, wins: 0, pnl: 0, staked: 0 }); x.trades++; x.wins += t.pnl > 0; x.pnl += t.pnl; x.staked += t.entry * t.qty; }
+    const pnl = done.reduce((a, t) => a + t.pnl, 0), staked = done.reduce((a, t) => a + t.entry * t.qty, 0);
+    return { rules: { qty: PAPER_QTY, maxPrice: PAPER_MAX, hold: PAPER_HOLD }, open: this.trades.length - done.length, skipped: this.skipped,
+      summary: { trades: done.length, wins: done.filter(t => t.pnl > 0).length, pnl: +pnl.toFixed(2), staked: +staked.toFixed(2), roi: staked ? pnl / staked : null,
+        medianFeedDelay: median(done.map(t => t.feedDelay)), medianLookupMs: median(done.map(t => t.lookupMs)) },
+      byStrategy: Object.values(by).map(x => ({ ...x, pnl: +x.pnl.toFixed(2), staked: +x.staked.toFixed(2) })),
+      trades: this.trades.slice(-300) };
+  }
+}
+
 // ---------------------------------------------------------------- recorder
 export class Recorder {
   constructor() {
@@ -308,6 +371,7 @@ export class Recorder {
     this.scoring = [];            // NBA scoring plays for the game-line trajectory analysis
     this.feedDelays = [];
     this.playerEvents = [];       // every stat change for a player who has Kalshi markets on that stat
+    this.paper = PAPER ? new PaperTrader() : null;
     this.started = Date.now();
     this.slowPtr = 0;
     this.emptySeries = new Map(); // series → time it last had no markets for live games
@@ -429,11 +493,17 @@ export class Recorder {
       this.feedDelays.push({ league: g.league, d: (now - playT) / 1000 });
       if (kp) g.keyPlays.push({ ...kp, playT, seenT: now });
       if (g.league === "nba") {
-        if (p.scoringPlay && kp?.team) this.scoring.push({ league: "nba", suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: p.scoreValue, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
+        if (p.scoringPlay && kp?.team) {
+          this.scoring.push({ league: "nba", suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: p.scoreValue, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
+          this.paperGameLine(g, this.scoring[this.scoring.length - 1]);
+        }
         this.applyIncrements(g, espnIncrements(p), playT, now);
       }
       // NFL scores feed the game-line simulator
-      if (g.league === "nfl" && kp?.type !== "Turnover" && kp?.team && kp.points) this.scoring.push({ league: "nfl", suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: kp.points, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
+      if (g.league === "nfl" && kp?.type !== "Turnover" && kp?.team && kp.points) {
+        this.scoring.push({ league: "nfl", suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: kp.points, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
+        this.paperGameLine(g, this.scoring[this.scoring.length - 1]);
+      }
     }
     if (g.league === "nfl") {
       // NFL props: compare box-score totals with the previous poll; a crossing is timed to the newest play
@@ -472,6 +542,7 @@ export class Recorder {
           secsLeft: clk ? +clk[1] * 60 + +clk[2] : null, home: +a.scoreHome, away: +a.scoreAway, text: a.description };
         g.keyPlays.push({ ...kp, playT, seenT: now });
         this.scoring.push({ league: "nba", suffix: g.suffix, game: g.name, playT, seenT: now, ...kp });
+        this.paperGameLine(g, this.scoring[this.scoring.length - 1]);
       }
       this.applyIncrements(g, nbaIncrements(a), playT, now);
     }
@@ -488,10 +559,23 @@ export class Recorder {
     for (const [ticker, m] of this.markets) {
       if (m.suffix !== g.suffix || m.stat !== stat || m.line == null || normName(m.name || "") !== normName(name)) continue;
       has = true;
-      if (before <= m.line && after > m.line) this.crossings.push({ ticker, league: g.league, game: g.name, player: name, stat, line: m.line, playT, seenT });
+      if (before <= m.line && after > m.line) {
+        this.crossings.push({ ticker, league: g.league, game: g.name, player: name, stat, line: m.line, playT, seenT });
+        this.paper?.enter("settled", ticker, { league: g.league, game: g.name, label: `${name} ${Math.ceil(m.line)}+ ${stat}`, playT, seenT });
+      }
     }
     // every stat change is a player event, crossing or not (it moves the player's higher lines too)
-    if (has) this.playerEvents.push({ league: g.league, suffix: g.suffix, game: g.name, player: name, stat, before, after, playT, seenT });
+    if (has) {
+      this.playerEvents.push({ league: g.league, suffix: g.suffix, game: g.name, player: name, stat, before, after, playT, seenT });
+      // paper trade: the player's next line up
+      const next = [...this.markets].filter(([, m]) => m.suffix === g.suffix && m.stat === stat && m.line != null && m.line >= after && normName(m.name || "") === normName(name)).sort((a, b) => a[1].line - b[1].line)[0];
+      if (next) this.paper?.enter("rung", next[0], { league: g.league, game: g.name, label: `${name} ${Math.ceil(next[1].line)}+ ${stat} after ${before}→${after}`, playT, seenT });
+    }
+  }
+  paperGameLine(g, sc) {
+    if (!this.paper || !sc || sc.suffix !== g.suffix) return;
+    const own = [...this.markets].find(([t, m]) => m.series === LEAGUES[g.league].game && m.suffix === g.suffix && t.endsWith("-" + kalshiCode(g.league, sc.team)));
+    if (own) this.paper.enter("gameline", own[0], { league: g.league, game: g.name, label: `${sc.team} +${sc.points}`, playT: sc.playT, seenT: sc.seenT });
   }
   /** A player event with the price path of the player's next two lines it did not settle. */
   playerEventReport(e) {
@@ -638,6 +722,7 @@ export class Recorder {
       gameReports: games.map(g => this.gameReport(g)),
       crossings: crossings.map(({ seenT, playT, ...c }) => ({ ...c, play: new Date(playT).toISOString() })),
       playerEvents: this.playerEvents.slice(-4000).map(e => this.playerEventReport(e)),
+      paper: this.paper?.report() ?? null,
       scoreReactions: scoreReactions.map(({ playT, ...r }) => ({ ...r, play: new Date(playT).toISOString() })),
     };
   }
@@ -645,7 +730,7 @@ export class Recorder {
   /** Small snapshot of live games for the live view. */
   liveSnapshot() {
     const games = [...this.games.values()].filter(g => g.suffix && (g.state === "in" || (g.state === "post" && g.endT > Date.now() - 30 * 60e3)));
-    return { updated: new Date().toISOString(), games: games.map(g => { const r = this.gameReport(g); r.markets = r.markets.slice(0, 120); return r; }) };
+    return { updated: new Date().toISOString(), paper: this.paper?.report(), games: games.map(g => { const r = this.gameReport(g); r.markets = r.markets.slice(0, 120); return r; }) };
   }
 }
 

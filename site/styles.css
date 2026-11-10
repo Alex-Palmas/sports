@@ -20,7 +20,7 @@ button,select,input{font:inherit;color:inherit}
 .sports{display:flex;gap:4px;flex:1;overflow-x:auto}
 .sports button{background:none;border:1px solid transparent;border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--muted);font-weight:600;white-space:nowrap}
 .sports button.active{background:var(--panel2);border-color:var(--line);color:var(--text)}
-.icon-btn{background:var(--panel2);border:1px solid var(--line);border-radius:8px;width:34px;height:34px;cursor:pointer}
+.icon-btn{background:var(--panel2);border:1px solid var(--line);border-radius:8px;width:34px;height:34px;cursor:pointer;display:inline-grid;place-items:center;color:var(--text);flex:none}
 
 .layout{flex:1;display:grid;grid-template-columns:380px 1fr;min-height:0}
 .sidebar{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;height:calc(100vh - 55px - 33px);position:sticky;top:55px}
@@ -187,6 +187,8 @@ table.shop td.top{font-weight:800;color:var(--hit)}
 .lat-legend .tick-home,.lat-legend .tick-away,.lat-legend .tick-to{width:3px;height:10px;border-radius:1px}
 .lat-legend .tick-home{background:var(--accent)}.lat-legend .tick-away{background:var(--blue)}.lat-legend .tick-to{background:var(--amber)}
 .sim h2{margin:0 0 4px}
+.sim-replay summary{cursor:pointer;display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+.sim-replay[open] summary{margin-bottom:8px}
 .sim-lede{margin:0 0 10px;max-width:760px}
 .sim-ctrls{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
 .sim-ctrls fieldset{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -207,3 +209,79 @@ table.shop td.top{font-weight:800;color:var(--hit)}
 .ladder.hit{border-color:var(--accent);background:rgba(34,197,94,.14)}
 .ladder.closed{opacity:.6}
 .ladder i{font-style:normal;font-weight:700}
+
+/* ---------- section nav ---------- */
+.views{display:flex;gap:6px;align-items:center}
+.view-btn{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+.view-btn svg{width:18px;height:18px;flex:none}
+.view-btn .short{display:none}
+.view-btn[data-view="props"]{display:none}
+.view-btn.active{color:#052e16}
+.view-btn:focus-visible,.icon-btn:focus-visible,.chip:focus-visible,.sports button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------- crypto tab ---------- */
+.cprices{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.cprice{display:flex;flex-direction:column;gap:6px}
+.cp-top{display:flex;justify-content:space-between;align-items:baseline}
+.cp-row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.cp-px{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums}
+.cspark{flex:none}
+.cstrats{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin:10px 0}
+.cstrat h3{margin:0 0 8px;font-size:14px}
+.cstrat .kpis{grid-template-columns:repeat(2,1fr)}
+.ctable td.edge{background:rgba(34,197,94,.16);font-weight:800;color:var(--hit)}
+.crypto-view .kpis{margin-top:10px}
+
+/* ---------- phones ---------- */
+@media (max-width:760px){
+  body{padding-bottom:calc(64px + env(safe-area-inset-bottom,0px))}
+  .topbar{position:sticky;top:0;padding:8px 12px;gap:8px;flex-wrap:nowrap}
+  .brand span{display:none}
+  .sports{gap:2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .sports::-webkit-scrollbar{display:none}
+  .sports button{padding:8px 10px;min-height:38px}
+  body:not([data-view="props"]):not([data-view=""]) .sports{visibility:hidden}
+  /* bottom tab bar */
+  .views{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(4,1fr);gap:0;
+    background:var(--panel);border-top:1px solid var(--line);padding:4px max(6px,env(safe-area-inset-left,0px)) calc(4px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-right,0px))}
+  .view-btn,.view-btn[data-view="props"]{display:flex;flex-direction:column;justify-content:center;gap:2px;min-height:52px;border:0;background:none;border-radius:10px;font-size:11px;font-weight:600;padding:4px 2px}
+  .view-btn svg{width:22px;height:22px}
+  .view-btn .long{display:none}
+  .view-btn .short{display:inline}
+  .view-btn.active{background:none;color:var(--accent)}
+  .view-btn.active svg{filter:drop-shadow(0 0 0 currentColor)}
+  .foot{margin-bottom:0;font-size:11px;padding:10px 12px}
+  /* comfortable spacing and touch targets */
+  .card{padding:12px;border-radius:12px}
+  .detail,.arb-view{padding:12px;gap:12px}
+  .arb-head h1{font-size:20px}
+  .kpis{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .kpi{padding:9px 10px}
+  .kpi .v{font-size:18px}
+  .chip,.icon-btn,.mobile-back{min-height:38px}
+  input,select{font-size:16px}  /* stops iOS zooming into form fields */
+  .filters input,.filters select{padding:10px}
+  .seg button{min-height:38px}
+  th,td{padding:7px 6px}
+  .lat-table{font-size:12.5px}
+  .prop-list li{padding:12px}
+  .player-head{gap:12px}
+  .ph-main h1{font-size:19px}
+  .game-tag{width:100%}
+  .stat-tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+  .stat-tabs::-webkit-scrollbar{display:none}
+  .stat-tabs .chip{flex:none}
+  .chart-top{align-items:stretch}
+  .line-ctrl{justify-content:space-between}
+  .line-ctrl button{width:40px;height:40px}
+  .arb-ctrls{width:100%}
+  .arb-ctrls label{flex:1 1 140px}
+  .arb-ctrls input,.arb-ctrls select{width:100%}
+  .gd-ctrls label{flex:1 1 140px}
+  .gd-ctrls select{width:100%}
+  .sim-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cstrat .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cp-px{font-size:22px}
+  .lat-groups .kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (max-width:380px){ .kpis{grid-template-columns:1fr 1fr} .kpi .k{font-size:10px} }

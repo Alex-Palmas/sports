@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f14" />
   <title>PropLab · Player Prop Research</title>
   <meta name="description" content="Research player props with hit rates, game logs and matchup trends." />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2322c55e'/><path d='M8 22l5-6 4 3 7-9' stroke='%23052e16' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
@@ -15,9 +16,13 @@
       <span>Prop<b>Lab</b></span>
     </div>
     <nav class="sports" id="sportTabs" role="tablist"></nav>
-    <button class="view-btn" id="arbBtn">⇄ Arbitrage</button>
-    <button class="view-btn" id="latBtn">⏱ Kalshi Latency Study</button>
-    <button class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+    <nav class="views" id="viewNav" aria-label="Sections">
+      <button class="view-btn active" data-view="props"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Props</span></button>
+      <button class="view-btn" data-view="arb" id="arbBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14l-4-4M20 16H6l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Arbitrage</span></button>
+      <button class="view-btn" data-view="lat" id="latBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l3 2M9 2h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="long">Kalshi Latency Study</span><span class="short">Latency</span></button>
+      <button class="view-btn" data-view="crypto" id="cryptoBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16M11 4v2M11 18v2M8 6h6a3 3 0 0 1 0 6H8h7a3 3 0 0 1 0 6H8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="long">Crypto Bot</span><span class="short">Crypto</span></button>
+    </nav>
+    <button class="icon-btn" id="themeBtn" title="Switch light/dark" aria-label="Switch light or dark theme"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
   </header>
 
   <main class="layout">
@@ -99,6 +104,14 @@
     </details>
   </section>
 
+  <section class="arb-view crypto-view" id="cryptoView" hidden>
+    <div class="arb-head"><div>
+      <h1>Crypto Bot</h1>
+      <p class="pl-sub">A paper-trading bot on Kalshi's Bitcoin and Ethereum markets (hourly above/below, hourly ranges, 15-minute up/down). It prices every market from the live exchange price, compares that with Kalshi's odds, and paper-trades when Kalshi lags. Two strategies run side by side: <b>Latency</b> uses Kalshi's own volatility and only wins if it reacts to price moves before Kalshi does; <b>Model</b> uses our volatility estimate. Positions are held to Kalshi's actual result. No orders are ever sent.</p>
+    </div></div>
+    <div id="cryptoBody"><div class="card pl-sub">Loading…</div></div>
+  </section>
+
   <footer class="foot">Demo data — fictional players and generated stats for illustration only. Not betting advice.</footer>
 
   <script src="data.js"></script>
@@ -107,6 +120,7 @@
   <script src="simui.js"></script>
   <script src="gametracker.js"></script>
   <script src="latency.js"></script>
+  <script src="crypto.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

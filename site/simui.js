@@ -6,7 +6,7 @@
   const cents = x => x == null ? "—" : Math.round(x * 100) + "¢";
   const STRATS = { settled: "Settled props: buy the line a play just settled, hold to $1", rung: "Player events: after any stat change, buy the player's next line up, sell after the hold", gameline: "Game line: after a score, buy the scoring team, sell after the hold" };
   const NAMES = { settled: "Settled props", rung: "Player events", gameline: "Game line" };
-  let opts = { strategies: ["settled", "rung", "gameline"], league: "all", feed: "", orderDelay: 0.5, maxPrice: 90, contracts: 10, hold: 30, clutchOnly: false, scope: "session" };
+  let opts = { strategies: ["settled", "rung", "gameline"], league: "all", orderDelay: 0.5, maxPrice: 90, contracts: 10, hold: 30, clutchOnly: false, scope: "session" };
   try { Object.assign(opts, JSON.parse(localStorage.getItem("proplab:sim") || "{}")); } catch {}
   const all = { loaded: false, recs: [] }; let showTrades = 25;
 
@@ -32,6 +32,24 @@
       </tbody></table></div>`;
   }
 
+  function paperSection(p, isLive, updated) {
+    if (!p) return `<div class="pl-sub sim-empty">Starts automatically when tonight's games tip off. Results appear here live (refreshed every few minutes) and stay with each night's recording.</div>`;
+    const s = p.summary, recent = (p.trades || []).slice().reverse().slice(0, 25);
+    const ago = updated ? Math.max(0, Math.round((Date.now() - Date.parse(updated)) / 60e3)) : null;
+    return `<div class="pl-sub" style="margin-bottom:8px">${isLive ? `<span class="live-dot"></span>Live · updated ${ago} min ago` : "From this session's live run"} · ${p.open || 0} open position${p.open === 1 ? "" : "s"} · skipped: ${p.skipped.tooExpensive} above max price, ${p.skipped.noPrice} no price or already closed, ${p.skipped.busy} while busy, ${p.skipped.duplicate} repeats</div>
+      <div class="kpis">
+        <div class="kpi"><div class="k">Closed trades</div><div class="v">${s.trades}</div><div class="s">${s.wins} winners (${pct(s.trades ? s.wins / s.trades : null)})</div></div>
+        <div class="kpi"><div class="k">Profit &amp; loss</div><div class="v" style="color:${s.pnl >= 0 ? "var(--hit)" : "var(--miss)"}">${usd(s.pnl)}</div><div class="s">after Kalshi fees</div></div>
+        <div class="kpi"><div class="k">Return on stake</div><div class="v">${pct(s.roi)}</div><div class="s">${usd(s.staked)} staked</div></div>
+        <div class="kpi"><div class="k">Feed delay</div><div class="v">${s.medianFeedDelay != null ? s.medianFeedDelay.toFixed(1) + "s" : "—"}</div><div class="s">median, play → ESPN</div></div>
+        <div class="kpi"><div class="k">Price lookup</div><div class="v">${s.medianLookupMs != null ? Math.round(s.medianLookupMs) + "ms" : "—"}</div><div class="s">median, ESPN → Kalshi price</div></div>
+      </div>
+      ${(p.byStrategy || []).length ? table(p.byStrategy.map(x => ({ ...x, key: x.strategy })), "Strategy") : ""}
+      ${recent.length ? `<h3 class="sub-h">Latest paper trades</h3><div class="table-wrap"><table class="lat-table"><thead><tr><th>Play</th><th>Strategy</th><th>Market</th><th class="num">Feed delay</th><th class="num">Buy</th><th class="num">Sell / settle</th><th class="num">Qty</th><th class="num">P&amp;L</th><th>Status</th></tr></thead><tbody>
+        ${recent.map(t => `<tr><td>${new Date(t.play).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}<div class="pl-sub">${esc(t.game)}</div></td><td>${esc(NAMES[t.strategy])}</td><td>${esc(t.label)}</td><td class="num">${t.feedDelay.toFixed(1)}s</td><td class="num">${cents(t.entry)}</td><td class="num">${t.exit != null ? cents(t.exit) : "—"}</td><td class="num">${t.qty}</td><td class="num" style="color:${(t.pnl ?? 0) >= 0 ? "var(--hit)" : "var(--miss)"}">${t.pnl != null ? usd(t.pnl) : "—"}</td><td>${t.status === "open" ? `<span class="tag mid">open</span>` : esc(t.status)}</td></tr>`).join("")}
+        </tbody></table></div>` : ""}`;
+  }
+
   async function render(box, current, sessions) {
     if (!box) return;
     if (opts.scope === "all" && !all.loaded) {
@@ -40,18 +58,24 @@
     }
     const recs = opts.scope === "all" ? all.recs : [current];
     const has = recs.some(r => r && ((r.crossings || []).length || (r.playerEvents || []).length || (r.scoreReactions || []).length));
-    const res = has ? window.PropSim.simulate(recs, { strategies: opts.strategies, league: opts.league, feedDelay: opts.feed === "" ? null : +opts.feed,
+    const res = has ? window.PropSim.simulate(recs, { strategies: opts.strategies, league: opts.league, feedDelay: null,
       orderDelay: +opts.orderDelay, maxPrice: +opts.maxPrice / 100, contracts: +opts.contracts, hold: +opts.hold, clutchOnly: opts.clutchOnly }) : null;
     const s = res?.summary;
+    const live = await (window.PropGames.getLive?.() ?? null);
+    const livePaper = live?.paper && (live.paper.summary.trades || live.paper.open) ? live.paper : null;
     box.innerHTML = `<div class="card sim">
-      <h2>Trading simulator <span class="pl-sub">paper trades replayed on the recorded Kalshi order book</span></h2>
-      <p class="pl-sub sim-lede">You act when your feed delivers the play, plus your order delay, and fill at the recorded best price and size at that moment, after Kalshi fees. Queue position, your own effect on the price and stat corrections aren't modelled, so read the results as a best case.</p>
+      <h2>Live paper trading <span class="pl-sub">is reacting to the feed fast enough to trade on Kalshi?</span></h2>
+      <p class="pl-sub sim-lede">While games are on, the recorder trades on paper by itself. The moment ESPN delivers a play, it asks Kalshi for that market's price right then and records a fill at the real ask: the line a play just settled (held to $1), the player's next line up after any stat change, and the scoring team's moneyline after a score (both sold at the real bid ${livePaper?.rules?.hold ?? (current?.paper?.rules?.hold ?? 30)}s later). ${livePaper?.rules?.qty ?? 10} contracts per trade, capped by the size offered, never above ${Math.round((livePaper?.rules?.maxPrice ?? 0.9) * 100)}¢, after Kalshi's fee. No orders are ever sent.</p>
+      ${paperSection(livePaper || current?.paper, !!livePaper, live?.updated)}
+    </div>
+    <details class="card sim sim-replay"${opts.replayOpen ? " open" : ""}>
+      <summary><b>What-if replay</b> <span class="pl-sub">re-run recorded plays with different rules (order delay, max price, size, hold)</span></summary>
+      <p class="pl-sub sim-lede">Replays the recorded order book around each play, acting at the recorded ESPN delay plus your order delay. Fills use the best recorded price and size; queue position and your own effect on the price aren't modelled, so read it as a best case.</p>
       <div class="sim-ctrls">
         <fieldset><legend>Strategies</legend>${Object.entries(STRATS).map(([k, l]) => `<label class="check"><input type="checkbox" data-strat="${k}" id="simS_${k}"${opts.strategies.includes(k) ? " checked" : ""}/> ${esc(l)}</label>`).join("")}</fieldset>
         <div class="sim-grid">
           <label>Data <select id="simScope"><option value="session"${opts.scope === "session" ? " selected" : ""}>Selected session</option><option value="all"${opts.scope === "all" ? " selected" : ""}>All sessions</option></select></label>
           <label>League <select id="simLeague">${[["all", "NBA + NFL"], ["nba", "NBA"], ["nfl", "NFL"]].map(([v, l]) => `<option value="${v}"${opts.league === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-          <label>Your feed <select id="simFeed"><option value=""${opts.feed === "" ? " selected" : ""}>Recorded ESPN delay</option>${[0, 1, 2, 3, 5, 8].map(v => `<option value="${v}"${String(opts.feed) === String(v) ? " selected" : ""}>${v}s after the play</option>`).join("")}</select></label>
           <label>Order delay (s) <input id="simOrder" type="number" min="0" max="10" step="0.1" value="${esc(opts.orderDelay)}"/></label>
           <label>Max price (¢) <input id="simMax" type="number" min="1" max="99" step="1" value="${esc(opts.maxPrice)}"/></label>
           <label>Contracts per trade <input id="simQty" type="number" min="1" max="10000" step="1" value="${esc(opts.contracts)}"/></label>
@@ -74,11 +98,12 @@
       ${res.trades.slice(-showTrades).reverse().map(t => `<tr><td>${new Date(t.time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}<div class="pl-sub">${esc(t.game)}</div></td><td>${esc(NAMES[t.strategy])}</td><td>${esc(t.label)}</td><td class="num">+${t.entryT.toFixed(1)}s</td><td class="num">${cents(t.entry)}</td><td class="num">${cents(t.exit)}</td><td class="num">${t.qty}</td><td class="num" style="color:${t.pnl >= 0 ? "var(--hit)" : "var(--miss)"}">${usd(t.pnl)}</td><td class="num">${usd(t.cum)}</td></tr>`).join("")}
       </tbody></table></div>
       ${res.trades.length > showTrades ? `<button class="chip" id="simMore" style="margin-top:8px">Show ${Math.min(100, res.trades.length - showTrades)} more</button>` : ""}`}
-    </div>`;
+    </details>`;
+    const det = box.querySelector(".sim-replay"); if (det) det.ontoggle = () => { opts.replayOpen = det.open; try { localStorage.setItem("proplab:sim", JSON.stringify(opts)); } catch {} };
     const save = () => { try { localStorage.setItem("proplab:sim", JSON.stringify(opts)); } catch {} render(box, current, sessions); };
     box.querySelectorAll("[data-strat]").forEach(c => c.onchange = () => { opts.strategies = [...box.querySelectorAll("[data-strat]:checked")].map(x => x.dataset.strat); save(); });
     const bind = (id, key, f = v => v) => { const n = box.querySelector(id); if (n) n.onchange = () => { opts[key] = f(n.type === "checkbox" ? n.checked : n.value); save(); }; };
-    bind("#simScope", "scope"); bind("#simLeague", "league"); bind("#simFeed", "feed"); bind("#simOrder", "orderDelay"); bind("#simMax", "maxPrice");
+    bind("#simScope", "scope"); bind("#simLeague", "league"); bind("#simOrder", "orderDelay"); bind("#simMax", "maxPrice");
     const more = box.querySelector("#simMore"); if (more) more.onclick = () => { showTrades += 100; render(box, current, sessions); };
     bind("#simQty", "contracts"); bind("#simHold", "hold"); bind("#simClutch", "clutchOnly");
   }

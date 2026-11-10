@@ -2,3 +2,4 @@ site/data.json
 .cache/
 node_modules/
 site/latency/live.json
+site/crypto/live.json

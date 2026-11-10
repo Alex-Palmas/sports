@@ -46,7 +46,14 @@ NBA game-line moves after each score are analysed the same way, split by situati
 
 **Player events.** Every stat change for a player with Kalshi lines is recorded, not just the ones that cross a line, together with the price path of the player's next two lines up. Each game view lists every player with Kalshi lines: live stats against each line, its price now and its change since tip-off.
 
-**Trading simulator.** The tab replays the recorded top of the order book (best bid, ask and size from −10s to +2 min around each play) as paper trades. It never places orders.
+**Live paper trading (feasibility test).** While games are on, the recorder trades on paper by itself, with no settings to choose. The moment ESPN delivers a play, it asks Kalshi for that market's current price and records a fill at the real ask, capped by the size offered.
+- The line the play just settled, held to $1.
+- The player's next line up after any stat change, sold at the real bid 30 seconds later.
+- The scoring team's moneyline after a score, sold at the real bid 30 seconds later.
+
+Each trade is 10 contracts, never above 90¢, after Kalshi's fee. Results (profit and loss, win rate, feed delay, price-lookup time, every trade) are published with the live snapshot and saved with each night's recording. Defaults can be changed with `PAPER_QTY`, `PAPER_MAX` and `PAPER_HOLD`, or turned off with `PAPER=0`. No orders are ever sent.
+
+**What-if replay.** The tab replays the recorded top of the order book (best bid, ask and size from −10s to +2 min around each play) as paper trades. It never places orders.
 - *Settled props*: buy the line a play just settled, hold to $1.
 - *Player events*: after a stat change, buy the player's next line up and sell after the hold.
 - *Game line*: after a score, buy the scoring team and sell after the hold.
@@ -60,6 +67,20 @@ Run it yourself (the NBA's own CDN feed only works from a home connection):
 LEAGUES=nba,nfl node scripts/kalshi-latency.mjs
 FEED=nba LEAGUES=nba node scripts/kalshi-latency.mjs
 ```
+
+## Crypto Bot
+`scripts/crypto-bot.mjs` paper-trades Kalshi's Bitcoin and Ethereum markets (hourly above/below, hourly ranges, 15-minute up/down). It never places orders.
+- **Prices:** the median of Coinbase, Kraken and Bitstamp, a stand-in for the CF Benchmarks index Kalshi settles on.
+- **Odds:** every market gets a probability from a lognormal model, adjusted for Kalshi's 60-second settlement average.
+- **Two strategies, tracked separately:**
+  - *Latency* uses the volatility Kalshi's own prices imply (learned while the price is calm), so it only finds an edge when BTC/ETH has just moved and Kalshi hasn't caught up.
+  - *Model* uses our own volatility estimate (median absolute deviation of 1-minute returns).
+- **Trading rules:** each strategy buys YES or NO when its probability beats Kalshi's price by 4¢+ after fees. 10 contracts, capped by the size offered; up to 5 positions per event; no new entries in the last 2 minutes. Positions are held to Kalshi's actual result.
+- **Also measured:**
+  - how fast Kalshi's at-the-money price catches up after sharp moves (≥ 15 bps in 10 seconds);
+  - accuracy (Brier score) of the model against Kalshi's own odds 5 minutes before each close.
+
+`.github/workflows/crypto-bot.yml` runs it for about 5h40m every 6 hours. While running it pushes a snapshot to the `live-crypto` branch every 2 minutes, which the app's **Crypto Bot** tab shows next to live Coinbase prices. Each session is committed to `site/crypto/`. Settings: `EDGE`, `QTY`, `MAX_PER_EVENT`, `JUMP_BPS`, `ASSETS`.
 
 ## Deploy
 `.github/workflows/pages.yml` fetches fresh data every 3 hours (and on every push to `main`) and publishes `site/` to GitHub Pages.

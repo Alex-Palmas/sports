@@ -341,19 +341,26 @@
     state.view = v;
     $("#arbView").hidden = v !== "arb";
     $("#latView").hidden = v !== "lat";
+    $("#cryptoView").hidden = v !== "crypto";
     document.querySelector(".layout").hidden = v !== "props";
-    $("#arbBtn").classList.toggle("active", v === "arb");
-    $("#latBtn").classList.toggle("active", v === "lat");
+    document.querySelectorAll("#viewNav .view-btn").forEach(b => { const on = b.dataset.view === v; b.classList.toggle("active", on); b.setAttribute("aria-current", on ? "page" : "false"); });
+    document.body.dataset.view = v;
     if (v !== "props") document.querySelectorAll("#sportTabs button").forEach(b => b.classList.remove("active"));
     if (v === "arb") renderArbs();
     else if (v === "lat") window.PropLatency.render($("#latView"));
+    else if (v === "crypto") window.PropCrypto.render($("#cryptoView"));
     else renderTabs();
+    window.scrollTo(0, 0);
+    try { if (location.hash.slice(1) !== (v === "props" ? "" : v)) history.replaceState(null, "", v === "props" ? location.pathname : "#" + v); } catch {}
   }
-  $("#arbBtn").onclick = () => setView(state.view === "arb" ? "props" : "arb");
-  $("#latBtn").onclick = () => setView(state.view === "lat" ? "props" : "lat");
+  document.querySelectorAll("#viewNav .view-btn").forEach(b => b.onclick = () => setView(b.dataset.view));
+  document.body.dataset.view = "props";
   window.PropLatency.wire($("#latView"));
   ["#arbStake", "#arbMin", "#arbSport"].forEach(id => $(id).addEventListener("input", renderArbs));
   $("#sportTabs").addEventListener("click", () => { if (state.view && state.view !== "props") setView("props"); }, true);
+  // open a section from the link (#arb, #lat, #crypto)
+  const startView = location.hash.slice(1);
+  if (["arb", "lat", "crypto"].includes(startView)) setTimeout(() => setView(startView), 0);
 
   const foot = document.querySelector(".foot");
   if (LIVE) {
