@@ -636,11 +636,23 @@ body:not([data-view="props"]) .games-strip{display:none}
 .day-head:first-child{margin-top:4px}
 /* Edge Board confidence filter chips */
 /* pinned under the header while the Edge Board scrolls */
-.conf-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:var(--top-h,56px);z-index:4;padding:10px 14px;box-shadow:0 6px 16px -12px rgba(0,0,0,.35)}
+.conf-bar{display:flex;flex-direction:column;align-items:stretch;gap:8px;position:sticky;top:var(--top-h,56px);z-index:4;padding:10px 14px;box-shadow:0 6px 16px -12px rgba(0,0,0,.35)}
 .conf-bar .cf-label{font-weight:700;font-size:13px;color:var(--text)}
 .conf-bar .cf-chip{font-size:13px;padding:6px 12px}
-@media (max-width:760px){.conf-bar{padding:8px 10px;gap:6px}.conf-bar .cf-chip{flex:1;justify-content:center;padding:7px 6px}.conf-bar .cf-label{width:100%}}
+.cb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media (max-width:760px){.conf-bar{padding:8px 10px;gap:6px}.cb-row{gap:6px}.conf-bar .cf-chip{flex:1;justify-content:center;padding:7px 6px}.conf-bar .cf-label{width:100%}}
 .cf-label{font-size:12px;color:var(--muted);margin-right:2px}
 .cf-chip{cursor:pointer;border:1px solid transparent;font:inherit;font-size:12px;font-weight:700;padding:5px 10px;margin:0;opacity:.45;filter:saturate(.4);transition:opacity .15s,filter .15s}
 .cf-chip b{font-weight:800;opacity:.8}
 .cf-chip.on{opacity:1;filter:none;border-color:currentColor}
+/* stat chips across the top (Props page and Edge Board) */
+.stat-strip{display:flex;gap:6px;overflow-x:auto;padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--line);scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.stat-strip::-webkit-scrollbar{display:none}
+body:not([data-view="props"]) #statStrip{display:none}
+.ss-chip{flex:none;border:1px solid var(--line);background:var(--panel2);color:var(--muted);border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s,color .15s,border-color .15s}
+.ss-chip:hover{color:var(--text);border-color:var(--accent)}
+.ss-chip.active{background:var(--accent);border-color:var(--accent);color:var(--on-accent,#fff)}
+.ss-chip b{font-weight:800;opacity:.7;margin-left:2px}
+.edge-stats{background:none;border:0;border-top:1px solid var(--line);margin:0 -14px -10px;padding:8px 14px 10px;border-radius:0 0 14px 14px}
+@media (max-width:760px){.edge-stats{margin:0 -10px -8px;padding:6px 10px 8px}}
+@media (max-width:760px){.stat-strip{padding:6px 12px}.ss-chip{padding:6px 12px}}

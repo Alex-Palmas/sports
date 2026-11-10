@@ -84,15 +84,16 @@ export const normName = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerC
 const SPORTS = {
   nba: {
     name: "NBA", path: "basketball/nba", lookAheadDays: 1, oddsKey: "basketball_nba",
-    stats: [["pts", "Points"], ["reb", "Rebounds"], ["ast", "Assists"], ["fg3", "3PT Made"], ["pra", "Pts+Reb+Ast"], ["stl", "Steals"], ["blk", "Blocks"]],
-    row: g => ({ pts: num(g.points), reb: num(g.totalRebounds), ast: num(g.assists), fg3: made(g["threePointFieldGoalsMade-threePointFieldGoalsAttempted"]), stl: num(g.steals), blk: num(g.blocks), pra: num(g.points) + num(g.totalRebounds) + num(g.assists) }),
+    stats: [["pts", "Points"], ["reb", "Rebounds"], ["ast", "Assists"], ["fg3", "3PT Made"], ["pr", "Pts+Reb"], ["pa", "Pts+Ast"], ["ra", "Reb+Ast"], ["pra", "Pts+Reb+Ast"], ["stl", "Steals"], ["blk", "Blocks"]],
+    row: g => { const p = num(g.points), r = num(g.totalRebounds), a = num(g.assists);
+      return { pts: p, reb: r, ast: a, fg3: made(g["threePointFieldGoalsMade-threePointFieldGoalsAttempted"]), stl: num(g.steals), blk: num(g.blocks), pr: p + r, pa: p + a, ra: r + a, pra: p + r + a }; },
     minutes: g => num(g.minutes), played: g => num(g.minutes) > 0,
     // keep rotation players
     select: (players) => players.filter(p => p.recentMin >= 18 && p.recentGames >= 3).sort((a, b) => b.recentMin - a.recentMin).slice(0, 9),
-    propStats: () => ["pts", "reb", "ast", "fg3", "pra", "stl", "blk"],
-    markets: { player_points: "pts", player_rebounds: "reb", player_assists: "ast", player_threes: "fg3", player_points_rebounds_assists: "pra", player_steals: "stl", player_blocks: "blk" },
+    propStats: () => ["pts", "reb", "ast", "fg3", "pr", "pa", "ra", "pra", "stl", "blk"],
+    markets: { player_points: "pts", player_rebounds: "reb", player_assists: "ast", player_threes: "fg3", player_points_rebounds: "pr", player_points_assists: "pa", player_rebounds_assists: "ra", player_points_rebounds_assists: "pra", player_steals: "stl", player_blocks: "blk" },
     oddsMarkets: ["player_points", "player_rebounds", "player_assists"],
-    kalshi: { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3", KXNBAPRA: "pra", KXNBASTL: "stl", KXNBABLK: "blk" },
+    kalshi: { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3", KXNBAPR: "pr", KXNBAPA: "pa", KXNBARA: "ra", KXNBAPRA: "pra", KXNBASTL: "stl", KXNBABLK: "blk" },
   },
   nfl: {
     name: "NFL", path: "football/nfl", lookAheadDays: 7, oddsKey: "americanfootball_nfl",

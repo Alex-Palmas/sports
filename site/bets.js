@@ -13,7 +13,8 @@
   // ESPN game-log columns → our stat keys (mirrors scripts/fetch-data.mjs)
   const num = v => { const n = parseFloat(String(v ?? "").replace(/,/g, "")); return Number.isFinite(n) ? n : 0; };
   const ROW = {
-    nba: g => ({ pts: num(g.points), reb: num(g.totalRebounds), ast: num(g.assists), fg3: num(String(g["threePointFieldGoalsMade-threePointFieldGoalsAttempted"] || "").split("-")[0]), stl: num(g.steals), blk: num(g.blocks), pra: num(g.points) + num(g.totalRebounds) + num(g.assists) }),
+    nba: g => { const p = num(g.points), r = num(g.totalRebounds), a = num(g.assists);
+      return { pts: p, reb: r, ast: a, fg3: num(String(g["threePointFieldGoalsMade-threePointFieldGoalsAttempted"] || "").split("-")[0]), stl: num(g.steals), blk: num(g.blocks), pr: p + r, pa: p + a, ra: r + a, pra: p + r + a }; },
     nfl: g => ({ pass_yds: num(g.passingYards), pass_td: num(g.passingTouchdowns), rush_yds: num(g.rushingYards), rec_yds: num(g.receivingYards), rec: num(g.receptions), td: num(g.rushingTouchdowns) + num(g.receivingTouchdowns) }),
     nhl: g => ({ sog: num(g.shotsTotal), pts: num(g.points), g: num(g.goals), ast: num(g.assists) }),
     mlb: g => { const h = num(g.hits); return { hits: h, tb: h + num(g.doubles) + 2 * num(g.triples) + 3 * num(g.homeRuns), rbi: num(g.RBIs), runs: num(g.runs), hrr: h + num(g.runs) + num(g.RBIs), hr: num(g.homeRuns), so: num(g.strikeouts) }; },

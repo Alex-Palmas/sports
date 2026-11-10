@@ -4,6 +4,27 @@
     const r = await fetch("data.json", { cache: "no-cache" });
     if (r.ok) { const d = await r.json(); if (d && d.sports) { DATA = d; LIVE = true; } }
   } catch {}
+  // NBA combo stats (P+R, P+A, R+A): derived from the box score for data generated before they existed
+  {
+    const nba = DATA.sports?.nba;
+    if (nba && !nba.stats.some(x => x.key === "pr")) {
+      const at = Math.max(0, nba.stats.findIndex(x => x.key === "pra"));
+      nba.stats.splice(at, 0, { key: "pr", label: "Pts+Reb" }, { key: "pa", label: "Pts+Ast" }, { key: "ra", label: "Reb+Ast" });
+      const fair = vals => { const m = vals.reduce((a, v) => a + v, 0) / vals.length; let best = null;
+        for (let k = 0; k <= Math.ceil(Math.max(...vals)); k++) { const L = k + 0.5, r = vals.filter(v => v > L).length / vals.length, sc = Math.abs(r - 0.5) + Math.abs(L - m) / (m + 1) * 0.01; if (!best || sc < best.sc) best = { L, sc }; }
+        return best ? best.L : 0.5; };
+      for (const p of nba.players || []) {
+        for (const l of [...(p.logs || []), ...(p.h2h || [])]) { const st = l.stats || {}; if (st.pts != null && st.pr == null) { st.pr = st.pts + (st.reb || 0); st.pa = st.pts + (st.ast || 0); st.ra = (st.reb || 0) + (st.ast || 0); } }
+        const recent = (p.logs || []).slice(0, 20);
+        if (recent.length >= 3 && p.lines?.pts != null) for (const k of ["pr", "pa", "ra"]) {
+          if (p.lines[k] != null) continue;
+          p.lines[k] = fair(recent.map(l => l.stats[k] ?? 0)); (p.lineSource ||= {})[k] = "proj";
+        }
+        // keep the stat order consistent: points … combos … PRA
+        if (p.lines) { const order = nba.stats.map(x => x.key); p.lines = Object.fromEntries(Object.entries(p.lines).sort((x, y) => order.indexOf(x[0]) - order.indexOf(y[0]))); }
+      }
+    }
+  }
   // A player with games on two days appears twice: give the later game its own id so selecting,
   // watching or tracking one never opens the other. The earliest game keeps the plain id.
   for (const sp of Object.values(DATA.sports || {})) {
@@ -39,6 +60,10 @@
   const avatar = (p, size, extra = "", sp = null) => { const t = (sp || sport()).teams.find(x => x.abbr === p.team);
     return `<span class="av ${extra}" style="--av:${size}px;background:${t ? t.color : "#64748b"}"><span class="av-i">${esc(initials(p.name))}</span>${p.headshot ? imgTag(p.headshot, size, size, "av-img", p.name) : ""}${t?.logo ? `<span class="av-team">${imgTag(t.logo, Math.round(size * 0.42), Math.round(size * 0.42), "tlogo", "")}</span>` : ""}</span>`; };
   const statLabel = k => sport().stats.find(s => s.key === k)?.label || k;
+  /** Compact chip names for the stat strip. */
+  const SHORT = { pts: "Points", reb: "Rebounds", ast: "Assists", fg3: "3PTM", pr: "P+R", pa: "P+A", ra: "R+A", pra: "PRA", stl: "Steals", blk: "Blocks", sog: "SOG", g: "Goals",
+    pass_yds: "Pass Yds", pass_td: "Pass TD", rush_yds: "Rush Yds", rec_yds: "Rec Yds", rec: "Rec", td: "Anytime TD", hits: "Hits", tb: "Total Bases", rbi: "RBI", runs: "Runs", hr: "HR", so: "K" };
+  window.PropShort = SHORT;
   const isHit = (v, line, side) => side === "over" ? v > line : v < line;
   const rate = (logs, k, line, side) => logs.length ? logs.filter(l => isHit(l.stats[k], line, side)).length / logs.length : 0;
   const avg = (logs, k) => logs.length ? logs.reduce((a, l) => a + l.stats[k], 0) / logs.length : 0;
@@ -148,6 +173,7 @@
     }
     const sf = $("#statFilter"); sf.innerHTML = `<option value="all">All props</option>` + sport().stats.map(s => `<option value="${s.key}">${esc(s.label)}</option>`).join("");
     sf.value = state.stat;
+    renderStatStrip();
   }
 
   function renderList() {
@@ -492,11 +518,25 @@
     strip.querySelector(".gs-game.active")?.scrollIntoView({ block: "nearest", inline: "center" });
   }
 
+  /** Stat chips across the top: All · Points · Rebounds · Assists · 3PTM · P+R · P+A · R+A · PRA … */
+  function renderStatStrip() {
+    const strip = $("#statStrip"); if (!strip) return;
+    const st = sport().stats.filter(x => sport().players.some(p => p.lines?.[x.key] != null));
+    strip.innerHTML = [["all", "All"], ...st.map(x => [x.key, SHORT[x.key] || x.label])].map(([k, l]) =>
+      `<button class="ss-chip${state.stat === k ? " active" : ""}" data-stat="${k}" aria-pressed="${state.stat === k}" title="${esc(k === "all" ? "All props" : statLabel(k))}">${esc(l)}</button>`).join("");
+    strip.querySelectorAll("[data-stat]").forEach(b => b.onclick = () => {
+      state.stat = b.dataset.stat; $("#statFilter").value = state.stat; state.sel = null;
+      if (state.view && state.view !== "props") setView("props");
+      renderStatStrip(); renderList(); renderDetail();
+    });
+    strip.querySelector(".active")?.scrollIntoView({ block: "nearest", inline: "center" });
+  }
+
   function renderAll() { renderTabs(); renderGames(); renderList(); renderDetail(); }
 
   // ---------- events ----------
   $("#search").oninput = e => { state.q = e.target.value; renderList(); };
-  $("#statFilter").onchange = e => { state.stat = e.target.value; state.sel = null; renderList(); renderDetail(); };
+  $("#statFilter").onchange = e => { state.stat = e.target.value; state.sel = null; renderStatStrip(); renderList(); renderDetail(); };
   $("#sortBy").onchange = e => { state.sort = e.target.value; renderList(); };
   $("#marketOnly").onchange = e => { state.marketOnly = e.target.checked; state.sel = null; renderList(); renderDetail(); };
   document.querySelectorAll("#sideToggle button").forEach(b => b.onclick = () => {
