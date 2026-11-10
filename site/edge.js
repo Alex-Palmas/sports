@@ -12,7 +12,11 @@
     return `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
   }
   const evTxt = e => (e >= 0 ? "+" : "") + (e * 100).toFixed(1) + "%";
-  let opts = { league: "all", minEv: 0.02, minConf: "any", marketOnly: true, q: "", show: 60 };
+  let opts = { league: "all", minEv: 0.02, minConf: "any", marketOnly: true, q: "", show: 60, day: "all" };
+  // local calendar day of a game, and a friendly label for it
+  const dayKey = iso => { if (!iso) return ""; const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const dayLabel = k => { const t = dayKey(new Date().toISOString()), tm = dayKey(new Date(Date.now() + 86400e3).toISOString());
+    return k === t ? "Today" : k === tm ? "Tomorrow" : k ? new Date(k + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }) : "Date TBD"; };
   const RANK = { Low: 0, Medium: 1, High: 2 }, MIN = { any: 0, medium: 1, high: 2 };
   /** Confidence badge: grade + score, with the reasons in the tooltip. */
   const confBadge = c => c ? `<span class="conf conf-${c.grade.toLowerCase()}" title="${esc(c.why.length ? c.why.map(w => `−${w.pts} ${w.txt}`).join("\n") : "Nothing lowers confidence")}"><i></i>${c.grade} ${c.score}</span>` : "";
@@ -76,21 +80,32 @@
 
   function render(el, DATA, api) {
     if (!report && !reportReq) loadReport().then(() => { if (!el.hidden) render(el, DATA, api); });
-    const all = rows(DATA), shown = all.slice(0, opts.show);
+    const ranked = rows(DATA), days = [...new Set(ranked.map(x => dayKey(x.p.gameDate)))].sort();
+    if (opts.day !== "all" && !days.includes(opts.day)) opts.day = "all";
+    // separated by day (earliest first), best EV first within each day
+    const all = ranked.filter(x => opts.day === "all" || dayKey(x.p.gameDate) === opts.day)
+      .map((x, i) => ({ ...x, day: dayKey(x.p.gameDate), i })).sort((a, b) => a.day.localeCompare(b.day) || a.i - b.i);
+    const perDay = {}; for (const x of all) perDay[x.day] = (perDay[x.day] || 0) + 1;
+    const taken = {}, shown = all.filter(x => (taken[x.day] = (taken[x.day] || 0) + 1) <= opts.show);   // each day gets its own top N
+    let lastDay = null, rank = 0;
     const leagues = Object.entries(DATA.sports).filter(([, s]) => s.players?.length);
     el.querySelector("#edgeBody").innerHTML = `
       <div class="edge-ctrls card">
         <label>League <select id="edgeLeague"><option value="all">All</option>${leagues.map(([k, s]) => `<option value="${k}"${opts.league === k ? " selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>
         <label>Minimum EV <select id="edgeMin">${[[-1, "Any"], [0, "0%+"], [0.02, "2%+"], [0.05, "5%+"], [0.1, "10%+"]].map(([v, l]) => `<option value="${v}"${+opts.minEv === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Day <select id="edgeDay"><option value="all">All days</option>${days.map(d => `<option value="${d}"${opts.day === d ? " selected" : ""}>${esc(dayLabel(d))}</option>`).join("")}</select></label>
         <label>Confidence <select id="edgeConf">${[["any", "Any"], ["medium", "Medium+"], ["high", "High only"]].map(([v, l]) => `<option value="${v}"${opts.minConf === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="edge-search">Search <input id="edgeQ" type="search" placeholder="Player, team or stat" value="${esc(opts.q)}" autocomplete="off"/></label>
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
       ${accuracy(DATA)}
       <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · EV uses our projection blended with the market's vig-free price at that line (market weight ${Math.round(((window.PropModel.cfg(opts.league === "all" ? "nba" : opts.league).marketWeight) || 0.5) * 100)}%), after Kalshi fees where they apply. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
-      <div class="edge-list">${shown.map((x, i) => {
+      <div class="edge-list">${shown.map(x => {
         const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25;
-        return `<div class="card edge-row" role="button" tabindex="0" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">
+        let head = "";
+        if (x.day !== lastDay) { lastDay = x.day; rank = 0; head = `<h3 class="day-head"><span>${esc(dayLabel(x.day))}</span><span class="pl-sub">${perDay[x.day] > opts.show ? `top ${opts.show} of ${perDay[x.day]}` : `${perDay[x.day]} prop${perDay[x.day] === 1 ? "" : "s"}`}</span></h3>`; }
+        const i = rank++;
+        return `${head}<div class="card edge-row" role="button" tabindex="0" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">
           <span class="er-rank">${i + 1}</span>
           ${api.avatar(p, 44, "", sp)}
           <span class="er-main"><b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}${p.gameDate ? ` · ${esc(when(p.gameDate))}` : ""}</span>
@@ -103,6 +118,7 @@
     const q = s => el.querySelector(s);
     q("#edgeLeague").onchange = e => { opts.league = e.target.value; save(); render(el, DATA, api); };
     q("#edgeMin").onchange = e => { opts.minEv = +e.target.value; save(); render(el, DATA, api); };
+    q("#edgeDay").onchange = e => { opts.day = e.target.value; save(); render(el, DATA, api); };
     q("#edgeConf").onchange = e => { opts.minConf = e.target.value; save(); render(el, DATA, api); };
     q("#edgeMarket").onchange = e => { opts.marketOnly = e.target.checked; save(); render(el, DATA, api); };
     q("#edgeQ").oninput = e => { opts.q = e.target.value; clearTimeout(q("#edgeQ")._t); q("#edgeQ")._t = setTimeout(() => { save(); render(el, DATA, api); setTimeout(() => { const n = el.querySelector("#edgeQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };

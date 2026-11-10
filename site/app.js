@@ -4,6 +4,14 @@
     const r = await fetch("data.json", { cache: "no-cache" });
     if (r.ok) { const d = await r.json(); if (d && d.sports) { DATA = d; LIVE = true; } }
   } catch {}
+  // A player with games on two days appears twice: give the later game its own id so selecting,
+  // watching or tracking one never opens the other. The earliest game keeps the plain id.
+  for (const sp of Object.values(DATA.sports || {})) {
+    const seen = new Set();
+    for (const p of (sp.players || []).slice().sort((a, b) => (a.gameDate || "").localeCompare(b.gameDate || ""))) {
+      if (seen.has(p.id)) p.id = `${p.id}@${(p.gameDate || "").slice(0, 10)}`; else seen.add(p.id);
+    }
+  }
   const $ = s => document.querySelector(s);
   const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); Object.assign(e, attrs); if (html) e.innerHTML = html; return e; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -60,9 +68,11 @@
   const gameKey = p => `${p.home ? p.opp : p.team}@${p.home ? p.team : p.opp}|${p.gameDate || ""}`;
   /** Local calendar day of a game (YYYY-MM-DD in the viewer's time zone). */
   const dayKey = iso => { if (!iso) return ""; const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const dayName = d => { const t = dayKey(new Date().toISOString()), tm = dayKey(new Date(Date.now() + 86400e3).toISOString());
+    return d === t ? "Today" : d === tm ? "Tomorrow" : new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }); };
   /** The days that have games, earliest first; the default is the first day whose games aren't over. */
   const gameDays = () => [...new Set(sport().players.map(p => dayKey(p.gameDate)).filter(Boolean))].sort();
-  const activeDay = () => { const ds = gameDays(); if (state.day && ds.includes(state.day)) return state.day;
+  const activeDay = () => { const ds = gameDays(); if (state.day === "all" || (state.day && ds.includes(state.day))) return state.day;
     const live = sport().players.filter(p => p.gameDate && Date.parse(p.gameDate) > Date.now() - 4 * 3600e3).map(p => dayKey(p.gameDate)).sort();
     return live[0] || ds[0] || null; };
   const curSeason = p => p.logs.filter(l => l.season === p.logs[0]?.season);
@@ -107,7 +117,7 @@
     const s = sport(); const out = [];
     for (const p of s.players) for (const k of Object.keys(p.lines)) {
       if (state.stat !== "all" && state.stat !== k) continue;
-      if (state.game ? gameKey(p) !== state.game : (activeDay() && dayKey(p.gameDate) !== activeDay())) continue;
+      if (state.game ? gameKey(p) !== state.game : (activeDay() && activeDay() !== "all" && dayKey(p.gameDate) !== activeDay())) continue;
       const line = p.lines[k];
       out.push({ p, k, line,
         l5: rate(p.logs.slice(0, 5), k, line, state.side),
@@ -144,7 +154,18 @@
     const list = $("#propList"); const rows = props(); list.innerHTML = "";
     if (!rows.length) { list.innerHTML = `<li class="empty" style="display:block">${esc(sport().players.length ? "No props match." : (sport().note || "No upcoming games."))}</li>`; return rows; }
     const frag = document.createDocumentFragment();
-    for (const r of rows.slice(0, 400)) {
+    // separated by day: earliest day first, the chosen sort within each day
+    const grouped = activeDay() === "all" && !state.game;
+    const perDay = {}; if (grouped) for (const r of rows) { const d = dayKey(r.p.gameDate); perDay[d] = (perDay[d] || 0) + 1; }
+    const PER_DAY = 200, taken = {};   // every day gets room, not just the first
+    const shownRows = grouped ? rows.map((r, i) => ({ r, i, d: dayKey(r.p.gameDate) })).sort((a, b) => a.d.localeCompare(b.d) || a.i - b.i)
+      .filter(x => (taken[x.d] = (taken[x.d] || 0) + 1) <= PER_DAY).map(x => x.r) : rows.slice(0, 400);
+    let lastDay = null;
+    for (const r of shownRows) {
+      if (grouped && dayKey(r.p.gameDate) !== lastDay) {
+        lastDay = dayKey(r.p.gameDate);
+        frag.append(el("li", { className: "day-sep" }, `<span>${esc(dayName(lastDay))}</span><span class="pl-sub">${perDay[lastDay] > PER_DAY ? `top ${PER_DAY} of ${perDay[lastDay]} · tap the day above for all` : `${perDay[lastDay]} props`}</span>`));
+      }
       const li = el("li");
       if (state.sel && state.sel.id === r.p.id && state.sel.k === r.k) li.className = "sel";
       li.innerHTML = `<div class="pl-cell">${avatar(r.p, 38)}<div style="min-width:0"><div class="pl-name"><span class="nm">${esc(r.p.name)}</span>${jersey(r.p)}</div>
@@ -440,15 +461,17 @@
     }
     if (state.game && !games.has(state.game)) state.game = null;
     const days = gameDays(), day = activeDay();
-    const list = [...games.values()].filter(g => g.day === day).sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.home.localeCompare(b.home));
+    const list = [...games.values()].filter(g => day === "all" || g.day === day).sort((a, b) => (a.date || "").localeCompare(b.date || "") || a.home.localeCompare(b.home));
     if (!games.size) { strip.innerHTML = ""; strip.hidden = true; return; }
     strip.hidden = false;
     const today = dayKey(new Date().toISOString()), tomorrow = dayKey(new Date(Date.now() + 86400e3).toISOString());
-    const dayLabel = d => d === today ? "Today" : d === tomorrow ? "Tomorrow" : new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    const dayLabel = d => d === "all" ? "All days" : d === today ? "Today" : d === tomorrow ? "Tomorrow" : new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
     const now = Date.now();
-    let html = days.length > 1 ? `<div class="gs-days" role="tablist" aria-label="Day">${days.map(d => `<button class="gs-daybtn${d === day ? " active" : ""}" role="tab" aria-selected="${d === day}" data-day="${d}">${esc(dayLabel(d))}<span>${[...games.values()].filter(g => g.day === d).length} games</span></button>`).join("")}</div>` : `<span class="gs-day">${esc(day ? dayLabel(day) : "")}</span>`;
+    let html = days.length > 1 ? `<div class="gs-days" role="tablist" aria-label="Day">${[...days, "all"].map(d => `<button class="gs-daybtn${d === day ? " active" : ""}" role="tab" aria-selected="${d === day}" data-day="${d}">${esc(dayLabel(d))}<span>${[...games.values()].filter(g => d === "all" || g.day === d).length} games</span></button>`).join("")}</div>` : `<span class="gs-day">${esc(day ? dayLabel(day) : "")}</span>`;
     html += `<button class="gs-all${state.game ? "" : " active"}" data-game="" aria-pressed="${!state.game}"><b>All games</b><span>${list.length} game${list.length === 1 ? "" : "s"}</span></button>`;
+    let sepDay = null;
     for (const g of list) {
+      if (day === "all" && g.day !== sepDay) { sepDay = g.day; html += `<span class="gs-day">${esc(dayLabel(g.day))}</span>`; }
       const t = g.date ? new Date(g.date) : null, live = t && t.getTime() <= now && now - t.getTime() < 4 * 3600e3;
       const line = g.odds ? [g.odds.details, g.odds.total ? `O/U ${g.odds.total}` : ""].filter(Boolean).join(" · ") : "";
       html += `<button class="gs-game${state.game === g.key ? " active" : ""}" data-game="${esc(g.key)}" aria-pressed="${state.game === g.key}" title="${esc(g.away)} at ${esc(g.home)}">
@@ -459,7 +482,7 @@
     const after = () => {
       if (state.view && state.view !== "props") setView("props");
       // keep the open prop only if it's still in the list
-      if (state.sel) { const sp = s.players.find(x => x.id === state.sel.id); const ok = sp && (state.game ? gameKey(sp) === state.game : dayKey(sp.gameDate) === activeDay());
+      if (state.sel) { const sp = s.players.find(x => x.id === state.sel.id); const ok = sp && (state.game ? gameKey(sp) === state.game : activeDay() === "all" || dayKey(sp.gameDate) === activeDay());
         if (!ok) { state.sel = null; document.querySelector(".layout").classList.remove("show-detail"); } }
       renderGames(); renderList(); if (!state.sel) renderDetail();
       if (window.innerWidth <= 900) document.querySelector(".layout").classList.remove("show-detail");
