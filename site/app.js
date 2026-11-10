@@ -31,7 +31,8 @@
   const heat = r => {
     // red -> neutral -> green
     const a = Math.min(1, Math.abs(r - 0.5) * 2.2);
-    const c = r >= 0.5 ? `rgba(34,197,94,${0.15 + a * 0.75})` : `rgba(239,68,68,${0.15 + a * 0.75})`;
+    // green for overs that hit, red for misses; stronger as the rate moves away from 50%
+    const c = r >= 0.5 ? `rgba(52,199,123,${0.12 + a * 0.78})` : `rgba(242,95,92,${0.12 + a * 0.78})`;
     return `background:${c};color:${a > 0.55 ? "#fff" : "var(--text)"}`;
   };
   const initials = n => n.split(" ").map(p => p[0]).join("").slice(0, 3);
@@ -196,7 +197,7 @@
     const rank = p.oppRank[k];
     const n = s.teamCount;
     const rankTxt = rank <= n / 3 ? "Tough" : rank > n * 2 / 3 ? "Soft" : "Neutral";
-    const rankColor = rank <= n / 3 ? "var(--red)" : rank > n * 2 / 3 ? "var(--accent)" : "var(--amber)";
+    const rankColor = rank <= n / 3 ? "var(--miss)" : rank > n * 2 / 3 ? "var(--hit)" : "var(--amber)";
 
     const splits = [["L5", p.logs.slice(0, 5)], ["L10", p.logs.slice(0, 10)], ["L20", p.logs.slice(0, 20)], ["Season", curSeason(p)], ["Last 40", p.logs], ["H2H", p.logs.filter(l => l.opp === p.opp)], ["Home", p.logs.filter(l => l.home)], ["Away", p.logs.filter(l => !l.home)]];
 
