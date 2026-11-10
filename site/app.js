@@ -222,6 +222,9 @@
           <button class="chip" id="watchBtn" aria-pressed="${window.PropBets.isWatched(window.PropBets.watchKey(state.sport, p.id, k))}">${window.PropBets.isWatched(window.PropBets.watchKey(state.sport, p.id, k)) ? "★ Watching" : "☆ Watch"}</button>
           <button class="chip active" id="trackBtn">+ Track bet</button>
           ${(p.market?.[k] || []).some(q => q.tk) ? `<button class="chip kalshi-btn" id="kalshiBtn" title="Place this bet on Kalshi">Bet on Kalshi</button>` : ""}
+          ${(() => { const kq = (p.market?.[k] || []).filter(q => q.k === "kalshi" && (q.href || q.tk)); const bb = window.PropModel.bestBet(p, k, state.sport)?.best;
+            const pick = kq.find(q => bb && bb.book === "Kalshi" && q.l === bb.line) || kq.find(q => q.l === p.lines?.[k]) || kq[0];
+            return pick ? window.PropKalshi.link(pick) : ""; })()}
         </div>
       </div>
       <div class="card">
@@ -371,7 +374,7 @@
       return `<td class="num${isBest ? " best" : topAtLine ? " top" : ""}">${odds(pr)}<small style="color:${evColor(ev)}">${evTxt(ev)}</small></td>`; };
     return `<div class="card"><h2>Line shopping <span class="pl-sub" style="font-weight:400">· ${nBooks} book${nBooks > 1 ? "s" : ""} · boxed = best over / best under line · bold = best price at that line · small % = est. EV</span></h2>
       <div class="table-wrap"><table class="shop"><thead><tr><th>Book</th><th class="num">Line</th><th class="num">Over</th><th class="num">Under</th><th class="num">L20 over%</th></tr></thead><tbody>
-      ${rows.map(q => `<tr${bv && bv.q === q ? ` class="valrow"` : ""}><td><b>${esc(q.b)}</b>${q.alt ? ` <span class="tag">alt</span>` : ""}${q.vol ? ` <span class="pl-sub">vol ${q.vol.toLocaleString()}</span>` : ""}</td><td class="num"><b>${q.l}</b></td>${cell(q, "over", q === bo)}${cell(q, "under", q === bu)}<td class="num">${pct(rate(p.logs.slice(0, 20), k, q.l, "over"))}</td></tr>`).join("")}
+      ${rows.map(q => `<tr${bv && bv.q === q ? ` class="valrow"` : ""}><td>${q.k === "kalshi" && (q.href || q.tk) ? `<a class="book-link" href="${esc(window.PropKalshi.href(q))}" target="_blank" rel="noopener" title="Open this market in Kalshi"><b>${esc(q.b)}</b> ↗</a>` : `<b>${esc(q.b)}</b>`}${q.alt ? ` <span class="tag">alt</span>` : ""}${q.vol ? ` <span class="pl-sub">vol ${q.vol.toLocaleString()}</span>` : ""}</td><td class="num"><b>${q.l}</b></td>${cell(q, "over", q === bo)}${cell(q, "under", q === bu)}<td class="num">${pct(rate(p.logs.slice(0, 20), k, q.l, "over"))}</td></tr>`).join("")}
       </tbody></table></div>
       ${kal.length > 3 ? `<button class="chip" id="ladderBtn" style="margin-top:8px">${state.fullLadder ? "Show fewer Kalshi strikes" : `Show full Kalshi ladder (${kal.length})`}</button>` : ""}
       ${bv ? `<div class="pl-sub" style="margin-top:8px">Best value for the <b>${side}</b>: <b>${esc(bv.q.b)} ${side === "over" ? "O" : "U"} ${bv.q.l} at ${odds(bv.price)}</b> (EV ${evTxt(bv.ev)}: we estimate ${pct(modelP(p, k, bv.q.l, side, bv.q))} vs. ${pct(impl(bv.price))} implied by the price). Kalshi prices include its trading fee.</div>` : ""}

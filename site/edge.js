@@ -82,15 +82,15 @@
       <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · EV uses our projection blended with the market's vig-free price at that line (market weight ${Math.round(((window.PropModel.cfg(opts.league === "all" ? "nba" : opts.league).marketWeight) || 0.5) * 100)}%), after Kalshi fees where they apply. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
       <div class="edge-list">${shown.map((x, i) => {
         const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25;
-        return `<button class="card edge-row" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">
+        return `<div class="card edge-row" role="button" tabindex="0" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">
           <span class="er-rank">${i + 1}</span>
           ${api.avatar(p, 44, "", sp)}
           <span class="er-main"><b>${esc(p.name)}</b> <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}</span>
             <span class="er-prop">${b ? `${b.side === "over" ? "Over" : "Under"} ${b.line}` : `Line ${r.line}`} ${esc(label)} <span class="pl-sub">· projection <b>${r.proj.mean}</b></span></span>
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
-          <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}`
+          <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}${b.book === "Kalshi" && (b.href || b.tk) && window.PropKalshi ? window.PropKalshi.link(b, "Open in Kalshi", "kalshi-link er-link") : ""}`
             : `<span class="er-ev">${pct(r.probs.over > 0.5 ? r.probs.over : r.probs.under)}</span><span class="pl-sub">${r.probs.over > 0.5 ? "over" : "under"} · fair ${odds(r.probs.over > 0.5 ? r.fairOver : r.fairUnder)}</span><span class="pl-sub">no price yet</span>${confBadge(r.confidence)}`}</span>
-        </button>`; }).join("") || `<div class="card empty">Nothing matches. Lower the minimum EV, or untick "Only props with a price".</div>`}</div>
+        </div>`; }).join("") || `<div class="card empty">Nothing matches. Lower the minimum EV, or untick "Only props with a price".</div>`}</div>
       ${all.length > shown.length ? `<button class="chip" id="edgeMore">Show more (${all.length - shown.length} left)</button>` : ""}`;
     const q = s => el.querySelector(s);
     q("#edgeLeague").onchange = e => { opts.league = e.target.value; save(); render(el, DATA, api); };
@@ -99,7 +99,11 @@
     q("#edgeMarket").onchange = e => { opts.marketOnly = e.target.checked; save(); render(el, DATA, api); };
     q("#edgeQ").oninput = e => { opts.q = e.target.value; clearTimeout(q("#edgeQ")._t); q("#edgeQ")._t = setTimeout(() => { save(); render(el, DATA, api); setTimeout(() => { const n = el.querySelector("#edgeQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
     if (q("#edgeMore")) q("#edgeMore").onclick = () => { opts.show += 60; render(el, DATA, api); };
-    el.querySelectorAll(".edge-row").forEach(b => b.onclick = () => api.openProp(b.dataset.sport, b.dataset.pid, b.dataset.k));
+    el.querySelectorAll(".edge-row").forEach(b => {
+      const open = () => api.openProp(b.dataset.sport, b.dataset.pid, b.dataset.k);
+      b.onclick = e => { if (!e.target.closest("[data-kalshi-link]")) open(); };
+      b.onkeydown = e => { if ((e.key === "Enter" || e.key === " ") && e.target === b) { e.preventDefault(); open(); } };
+    });
   }
   window.PropEdge = { render, chips, confBadge };
 })();

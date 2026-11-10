@@ -196,7 +196,7 @@
       const pr = probabilities(p, stat, q.l, proj, league), mine = side === "over" ? pr.over : pr.under, mk = marketProb(q, side);
       const prob = mk == null ? mine : (1 - C.marketWeight) * mine + C.marketWeight * mk;
       const e = ev(prob, price);
-      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null };
+      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null };
     }
     return { proj, line, probs: base, best, confidence: confidence(p, stat, league, proj, best), fairOver: base ? toAmerican(base.over) : null, fairUnder: base ? toAmerican(base.under) : null };
   }
