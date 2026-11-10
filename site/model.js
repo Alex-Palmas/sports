@@ -249,9 +249,19 @@
    * Projected score for a game from each side's recent points for/against (recency-weighted, shrunk to
    * the league average): home = off(home) + def(away) − league avg + home edge.
    */
+  /**
+   * A team's games from this season (newest first). Last season's are used only when this season has
+   * fewer than 5; entries are flagged season "cur"/"prev", or (older data) split at a 60-day gap.
+   */
+  function seasonForm(f) {
+    f = f || []; if (!f.length) return f;
+    let cur = f.filter(x => x.season ? x.season === "cur" : true);
+    if (!f.some(x => x.season)) { const newest = Date.parse(f[0].date); cur = []; for (let i = 0; i < f.length; i++) { if (i && Date.parse(f[i - 1].date) - Date.parse(f[i].date) > 60 * 86400e3) break; cur.push(f[i]); } }
+    return cur.length >= 5 ? cur : f;
+  }
   function gameModel(g, league, lgAvg) {
     const C = GAME[league] || GAME.nba;
-    const fH = (g.form?.[g.home] || []).slice(0, 15), fA = (g.form?.[g.away] || []).slice(0, 15);
+    const fH = seasonForm(g.form?.[g.home]).slice(0, 15), fA = seasonForm(g.form?.[g.away]).slice(0, 15);
     if (fH.length < 3 || fA.length < 3) return null;
     const lg = lgAvg || mean([...fH, ...fA].flatMap(x => [x.pf, x.pa]));
     const rate = (f, key) => lg + (ewMean(f.map(x => x[key]), C.half) - lg) * f.length / (f.length + C.k);
@@ -321,6 +331,6 @@
     return { prob: pp, line: dl };
   }
 
-  const api = { gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
+  const api = { seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropModel = api;
 })(typeof window !== "undefined" ? window : globalThis);
