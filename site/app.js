@@ -206,13 +206,16 @@
       frag.append(li);
     }
     list.append(frag);
+    markListColumn();
     return rows;
   }
 
   function select(id, k) {
+    // a different prop starts on L10 (the list's default); switching stat tabs on the same player keeps the range
+    if (!state.sel || state.sel.id !== id) state.range = "L10";
     state.sel = { id, k }; state.lineAdj = 0;
     document.querySelector(".layout").classList.add("show-detail");
-    renderList(); renderDetail();
+    renderList(); renderDetail(); markListColumn();
     if (window.innerWidth <= 900) window.scrollTo(0, 0);
   }
 
@@ -308,6 +311,9 @@
           <div class="stat-tabs" id="rangeTabs">${["L5", "L10", "L20", "Season", "H2H", "Home", "Away"].map(r => `<button class="chip ${r === state.range ? "active" : ""}" data-r="${r}">${r}</button>`).join("")}</div>
           <div class="line-ctrl"><button id="lineDown" aria-label="Lower line">−</button><div class="line-val">${side === "over" ? "O" : "U"} ${line}<small>${state.lineAdj ? "alt line" : isProj(p, k) ? "projected" : "book line"}</small></div><button id="lineUp" aria-label="Raise line">+</button></div>
         </div>
+        <div class="chart-cap">${(() => { const n = logs.length, h = logs.filter(l => isHit(l.stats[k], line, side)).length;
+          const what = { L5: "Last 5 games", L10: "Last 10 games", L20: "Last 20 games", Season: "This season", H2H: `Head to head vs ${esc(p.opp)}`, Home: "Home games", Away: "Road games" }[state.range] || state.range;
+          return `<b>${what}</b>: ${side === "over" ? "over" : "under"} ${line} in <b style="color:${n && h / n >= 0.5 ? "var(--hit)" : "var(--miss)"}">${h} of ${n}</b>${n ? ` (${pct(h / n)})` : ""}`; })()}</div>
         ${logs.length ? chartSVG(logs, k, line, side) : `<div class="empty">No games in this split.</div>`}
       </div>
       ${edgeCards(p, k, line, side)}
@@ -345,7 +351,7 @@
     };
     d.querySelectorAll("[data-corr]").forEach(b => b.onclick = () => select(b.dataset.corr, b.dataset.k));
     d.querySelectorAll("#statTabs .chip").forEach(b => b.onclick = () => select(p.id, b.dataset.k));
-    d.querySelectorAll("#rangeTabs .chip").forEach(b => b.onclick = () => { state.range = b.dataset.r; renderDetail(); });
+    d.querySelectorAll("#rangeTabs .chip").forEach(b => b.onclick = () => { state.range = b.dataset.r; renderDetail(); markListColumn(); });
     $("#lineDown").onclick = () => { if (base + state.lineAdj - 1 >= 0.5) { state.lineAdj -= 1; renderDetail(); } };
     $("#lineUp").onclick = () => { state.lineAdj += 1; renderDetail(); };
     const lb = $("#ladderBtn"); if (lb) lb.onclick = () => { state.fullLadder = !state.fullLadder; renderDetail(); };
@@ -543,6 +549,13 @@
     if (!g) { box.innerHTML = ""; return; }
     box.innerHTML = window.PropGames.card(g, state.sport, api, { compact: true, lgAvg: window.PropGames.lgAvgOf(sport().games || []) });
     box.querySelector("[data-full]")?.addEventListener("click", e => { api.focusGame = e.currentTarget.dataset.full; setView("games"); });
+  }
+
+  /** Highlight the list column (L5 / L10 / L20 / H2H) that matches the chart's range. */
+  function markListColumn() {
+    const col = { L5: 1, L10: 2, L20: 3, H2H: 4 }[state.range] || 0;
+    document.querySelectorAll(".list-head span").forEach((s, i) => s.classList.toggle("col-on", i === col));
+    document.querySelector("#propList")?.setAttribute("data-col", col);
   }
 
   function renderAll() { renderTabs(); renderGames(); renderList(); renderDetail(); }
