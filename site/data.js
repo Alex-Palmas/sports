@@ -100,8 +100,8 @@
         const market = {};
         for (const [k, L] of Object.entries(lines)) {
           market[k] = ["DraftKings", "FanDuel", "BetMGM", "Caesars", "Kalshi"].filter(() => rnd() > 0.25).map(b => {
-            const l = L + (rnd() < 0.25 ? (rnd() < 0.5 ? -1 : 1) : 0), o = -110 + Math.round((rnd() - 0.5) * 40 / 5) * 5;
-            return { b, k: b.toLowerCase(), l: Math.max(0.5, l), o, u: -220 - o + Math.round((rnd() - 0.5) * 10) };
+            const l = L + (rnd() < 0.25 ? (rnd() < 0.5 ? -1 : 1) : 0), o = -110 + Math.round((rnd() - 0.5) * 24 / 5) * 5;
+            return { b, k: b.toLowerCase(), l: Math.max(0.5, l), o, u: -225 - o + Math.round((rnd() - 0.5) * 8) };
           });
         }
         const g = slate[t.abbr];

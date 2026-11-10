@@ -299,6 +299,54 @@
   if (theme) document.documentElement.dataset.theme = theme;
   $("#themeBtn").onclick = () => { const t = document.documentElement.dataset.theme === "light" ? "dark" : "light"; document.documentElement.dataset.theme = t; store.set("theme", t); };
 
+  // ---------- arbitrage view ----------
+  const money = x => "$" + x.toFixed(2);
+  const sportSel = $("#arbSport");
+  sportSel.innerHTML += Object.entries(DATA.sports).filter(([, s]) => s.players.length).map(([k, s]) => `<option value="${k}">${esc(s.name)}</option>`).join("");
+  function renderArbs() {
+    const stake = Math.max(1, +$("#arbStake").value || 100);
+    const minM = +$("#arbMin").value, sp = sportSel.value;
+    const all = window.PropArb.findArbs(DATA, { minMargin: minM }).filter(a => sp === "all" || a.sport === sp);
+    const sure = all.filter(a => a.margin > 0).length;
+    const nQuoted = Object.values(DATA.sports).reduce((n, s) => n + s.players.reduce((m, p) => m + Object.keys(p.market || {}).length, 0), 0);
+    const books = new Set(); Object.values(DATA.sports).forEach(s => s.players.forEach(p => Object.values(p.market || {}).forEach(qs => qs.forEach(q => books.add(q.b)))));
+    $("#arbNote").innerHTML = `Scanned <b>${nQuoted}</b> props with prices from <b>${books.size}</b> book${books.size === 1 ? "" : "s"} (${esc([...books].join(", ") || "none")}) → <b>${sure}</b> sure-profit arb${sure === 1 ? "" : "s"}${minM < 0 ? ` and ${all.length - sure} near-arbs` : ""}.
+      ${books.size < 2 ? ` Arbs need prices from several books — add an <code>ODDS_API_KEY</code> to bring in DraftKings, FanDuel, BetMGM, Caesars and more.` : ""}
+      Prices move fast and books limit or void obvious arbs: re-check both prices before betting. Kalshi prices include its fee.`;
+    if (!all.length) { $("#arbList").innerHTML = `<div class="card empty">No ${minM < 0 ? "arbs or near-arbs" : "arbitrage opportunities"} right now. ${minM === 0 ? "Try showing near-arbs, or check back after books post the day's props." : ""}</div>`; return; }
+    $("#arbList").innerHTML = all.slice(0, 200).map(a => {
+      const sO = stake * a.wO, sU = stake * a.wU, pay = sO * window.PropArb.dec(a.over.o); // equal on either leg
+      const profit = pay - stake;
+      const when = a.gameDate ? new Date(a.gameDate).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : (a.gameTime || "");
+      return `<div class="card arb ${a.margin > 0 ? "sure" : ""}" data-pid="${esc(a.playerId)}" data-k="${esc(a.stat)}" data-sport="${esc(a.sport)}">
+        <div class="arb-top">
+          <div><b>${esc(a.player)}</b> · ${esc(a.statLabel)} <span class="pl-sub">${esc(a.sportName)} · ${esc(a.team)} ${a.home ? "vs" : "@"} ${esc(a.opp)} · ${esc(when)}</span></div>
+          <div class="arb-margin" style="color:${a.margin > 0 ? "var(--hit)" : "var(--amber)"}">${a.margin > 0 ? "+" : ""}${(a.margin * 100).toFixed(2)}%${a.middle ? ` <span class="tag mid">middle ${a.over.l}–${a.under.l}</span>` : ""}</div>
+        </div>
+        <div class="legs">
+          <div class="leg"><span class="pl-sub">Bet</span> <b>${money(sO)}</b> on <b>Over ${a.over.l}</b> <b class="px">${odds(a.over.o)}</b> at <b>${esc(a.over.b)}</b></div>
+          <div class="leg"><span class="pl-sub">Bet</span> <b>${money(sU)}</b> on <b>Under ${a.under.l}</b> <b class="px">${odds(a.under.u)}</b> at <b>${esc(a.under.b)}</b></div>
+        </div>
+        <div class="pl-sub">Either leg pays <b>${money(pay)}</b> → ${profit >= 0 ? "guaranteed profit" : "worst case"} <b style="color:${profit >= 0 ? "var(--hit)" : "var(--miss)"}">${profit >= 0 ? "+" : "−"}${money(Math.abs(profit))}</b>${a.middle ? `; if the result lands between ${a.over.l} and ${a.under.l} both win (<b>${money(sO * window.PropArb.dec(a.over.o) + sU * window.PropArb.dec(a.under.u) - stake)}</b> profit; happened in ${pct(a.hitMiddle)} of last 20 games)` : ""}.</div>
+      </div>`;
+    }).join("");
+    document.querySelectorAll("#arbList .arb").forEach(c => c.onclick = () => {
+      setView("props"); state.sport = c.dataset.sport; state.stat = "all"; store.set("sport", state.sport);
+      renderTabs(); select(c.dataset.pid, c.dataset.k);
+    });
+  }
+  function setView(v) {
+    state.view = v;
+    $("#arbView").hidden = v !== "arb";
+    document.querySelector(".layout").hidden = v === "arb";
+    $("#arbBtn").classList.toggle("active", v === "arb");
+    if (v === "arb") { document.querySelectorAll("#sportTabs button").forEach(b => b.classList.remove("active")); renderArbs(); }
+    else renderTabs();
+  }
+  $("#arbBtn").onclick = () => setView(state.view === "arb" ? "props" : "arb");
+  ["#arbStake", "#arbMin", "#arbSport"].forEach(id => $(id).addEventListener("input", renderArbs));
+  $("#sportTabs").addEventListener("click", () => { if (state.view === "arb") setView("props"); }, true);
+
   const foot = document.querySelector(".foot");
   if (LIVE) {
     const upd = new Date(DATA.generated).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
