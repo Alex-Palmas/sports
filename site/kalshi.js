@@ -69,7 +69,7 @@
   // ---------------------------------------------------------------- links to kalshi.com (open the app on phones)
   // series slugs as Kalshi uses them in page URLs (data.json carries a ready-made href; this is the fallback)
   const SLUGS = { kxnbapts: "nba-player-points", kxnbareb: "nba-player-rebounds", kxnbaast: "nba-player-assists", kxnba3pt: "nba-player-threes",
-    kxnbapra: "nba-player-points-rebounds-assists", kxnbastl: "nba-player-steals", kxnbablk: "nba-player-blocks",
+    kxnbapra: "nba-player-points-rebounds-assists", kxnbapr: "pro-basketball-player-points-rebounds", kxnbapa: "pro-basketball-player-points-assists", kxnbara: "pro-basketball-player-rebounds-assists", kxnbastl: "nba-player-steals", kxnbablk: "nba-player-blocks",
     kxnflpassyds: "pro-football-passing-yards", kxnflrshyds: "pro-football-rushing-yards", kxnflrecyds: "pro-football-receiving-yards",
     kxnflrec: "pro-football-player-receptions", kxnflanytd: "pro-football-anytime-touchdown", kxnhlpts: "pro-hockey-points",
     kxnhlast: "pro-hockey-assists", kxnhlanygoal: "pro-hockey-goalscorer", kxnhlgoal: "nhl-goalscorer" };
