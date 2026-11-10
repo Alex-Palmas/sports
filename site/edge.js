@@ -100,12 +100,12 @@
     let lastDay = null, rank = 0;
     const leagues = Object.entries(DATA.sports).filter(([, s]) => s.players?.length);
     el.querySelector("#edgeBody").innerHTML = `
+      <div class="conf-bar card" role="group" aria-label="Filter by confidence"><span class="cf-label">Confidence</span>${GRADES.map(g => `<button type="button" class="conf conf-${g.toLowerCase()} cf-chip${opts.grades.includes(g) ? " on" : ""}" data-grade="${g}" aria-pressed="${opts.grades.includes(g)}"><i></i>${g} <b>${gradeCounts[g] || 0}</b></button>`).join("")}</div>
       <div class="edge-ctrls card">
         <label>League <select id="edgeLeague"><option value="all">All</option>${leagues.map(([k, s]) => `<option value="${k}"${opts.league === k ? " selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>
         <label>Minimum EV <select id="edgeMin">${[[-1, "Any"], [0, "0%+"], [0.02, "2%+"], [0.05, "5%+"], [0.1, "10%+"]].map(([v, l]) => `<option value="${v}"${+opts.minEv === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
         <label>Day <select id="edgeDay"><option value="all">All days</option>${days.map(d => `<option value="${d}"${opts.day === d ? " selected" : ""}>${esc(dayLabel(d))}</option>`).join("")}</select></label>
         <label>Sort <select id="edgeSort">${Object.entries(SORTS).map(([v, l]) => `<option value="${v}"${opts.sort === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-        <div class="conf-filter" role="group" aria-label="Confidence"><span class="cf-label">Confidence</span>${GRADES.map(g => `<button type="button" class="conf conf-${g.toLowerCase()} cf-chip${opts.grades.includes(g) ? " on" : ""}" data-grade="${g}" aria-pressed="${opts.grades.includes(g)}"><i></i>${g} <b>${gradeCounts[g] || 0}</b></button>`).join("")}</div>
         <label class="edge-search">Search <input id="edgeQ" type="search" placeholder="Player, team or stat" value="${esc(opts.q)}" autocomplete="off"/></label>
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>

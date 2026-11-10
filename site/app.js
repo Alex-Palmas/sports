@@ -506,6 +506,9 @@
   });
   const theme = store.get("theme", null);
   if (theme) document.documentElement.dataset.theme = theme;
+  // header height, so pinned bars (the Edge Board's confidence filter) sit right under it
+  const setTopH = () => document.documentElement.style.setProperty("--top-h", (document.querySelector(".topbar")?.offsetHeight || 56) + "px");
+  setTopH(); window.addEventListener("resize", setTopH);
   $("#settingsBtn").onclick = () => window.PropKalshi.openSettings();
   $("#themeBtn").onclick = () => {
     const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
