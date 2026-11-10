@@ -17,5 +17,8 @@ test("live ledger records before tip-off, grades from the game log, and fits a m
   const p2 = { ...p, gameDate: "2026-11-03T23:00Z", logs: [{ date: "2026-11-01", stats: { pts: 25 } }, ...logs(20)] };
   const s = applyTrack({ sports: { nba: { players: [p2] } } }, track, now + 86400e3);
   assert.equal(track.picks[k].y, 1); assert.equal(track.picks[k].actual, 25);
+  const bet = track.picks[k].bet; assert.ok(bet && [0, 1].includes(bet.won));
+  assert.equal(bet.won, (bet.side === "over" ? 25 > bet.line : 25 < bet.line) ? 1 : 0);
+  assert.ok(Array.isArray(track.picks[k].codes) && track.picks[k].grade);
   assert.equal(s.nba.n, 1); assert.ok(s.nba.blend.marketWeight >= 0 && s.nba.blend.marketWeight <= 1);
 });

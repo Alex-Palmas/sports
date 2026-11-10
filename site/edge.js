@@ -49,6 +49,7 @@
   // walk-forward backtest (scripts/backtest-model.mjs) + live ledger (scripts/fetch-data.mjs)
   let report = null, reportReq = null;
   const loadReport = () => reportReq ||= fetch("model-report.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).catch(() => null).then(r => (report = r));
+  const roi = x => x == null ? "—" : (x >= 0 ? "+" : "") + (x * 100).toFixed(1) + "%";
   const n2 = x => x == null ? "—" : (+x).toFixed(3);
   function accuracy(DATA) {
     const lgs = Object.entries(report?.leagues || {}), live = Object.entries(DATA.modelTrack || {});
@@ -61,7 +62,7 @@
       </tbody></table></div>
       ${lgs.map(([k, r]) => `<div class="acc-cal"><span class="pl-sub">${esc(name(k))} calibration (predicted → actual over rate)</span><div class="acc-bars">${r.tuned.calibration.filter(b => b.n >= 30).map(b => `<span title="${b.n} props"><i style="height:${Math.round(b.actual * 100)}%"></i><em style="bottom:${Math.round(b.predicted * 100)}%"></em><small>${Math.round(b.predicted * 100)}</small></span>`).join("")}</div></div>`).join("")}` : ""}
       ${live.some(([, t]) => t.byGrade) ? `<p class="pl-sub"><b>Live record by confidence</b>: ${live.map(([k, t]) => `${esc(name(k))}: ${Object.entries(t.byGrade || {}).map(([g, x]) => `${g} ${x.n} props, ours ${n2(x.model)} vs market ${n2(x.market)}`).join(", ")}`).join(" · ")}</p>` : ""}
-      ${live.length ? `<p class="pl-sub"><b>Live record</b> (real lines, graded after each game): ${live.map(([k, t]) => `${esc(name(k))}: ${t.n} props, ours ${n2(t.model.logLoss)} vs market ${n2(t.market.logLoss)}, best market weight ${Math.round(t.blend.marketWeight * 100)}%`).join(" · ")}${live.some(([, t]) => t.n < 300) ? ". The EV blend switches to the live weight after 300 graded props." : ""}</p>` : `<p class="pl-sub">Live record: starts filling in as tonight's props are graded.</p>`}
+      ${live.length ? `<p class="pl-sub"><b>Live record</b> (real lines, graded after each game): ${live.map(([k, t]) => `${esc(name(k))}: ${t.n} props, ours ${n2(t.model.logLoss)} vs market ${n2(t.market.logLoss)}, best market weight ${Math.round(t.blend.marketWeight * 100)}%`).join(" · ")}. Retuned daily from these results (see docs/model-changelog.md).</p>${live.some(([, t]) => t.bets?.all?.n) ? `<p class="pl-sub"><b>Edge Board picks</b> (positive EV, 1 unit each): ${live.filter(([, t]) => t.bets?.all?.n).map(([k, t]) => `${esc(name(k))}: ${t.bets.all.n} bets, ROI ${roi(t.bets.all.roi)} (expected ${roi(t.bets.all.expected)})${Object.entries(t.bets.byGrade).map(([g, x]) => ` · ${g} ${x.n} @ ${roi(x.roi)}`).join("")}`).join(" | ")}</p>` : ""}` : `<p class="pl-sub">Live record: starts filling in as tonight's props are graded.</p>`}
     </details>`;
   }
 

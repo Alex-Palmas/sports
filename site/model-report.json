@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-10T20:38:47.223Z",
+ "generated": "2026-11-10T20:44:42.156Z",
  "source": "2026-11-10T19:49:20.041Z",
  "method": "Walk-forward replay: each game predicted from only the games before it. Lines at the player's recent median (x.5), ±1, and alternate strikes ±0.5 and ±1 standard deviation away. Settings tuned on the earlier 70% of dates; numbers below are the later 30%.",
  "leagues": {
