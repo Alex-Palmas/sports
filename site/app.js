@@ -221,6 +221,7 @@
         <div class="ph-actions">
           <button class="chip" id="watchBtn" aria-pressed="${window.PropBets.isWatched(window.PropBets.watchKey(state.sport, p.id, k))}">${window.PropBets.isWatched(window.PropBets.watchKey(state.sport, p.id, k)) ? "★ Watching" : "☆ Watch"}</button>
           <button class="chip active" id="trackBtn">+ Track bet</button>
+          ${(p.market?.[k] || []).some(q => q.tk) ? `<button class="chip kalshi-btn" id="kalshiBtn" title="Place this bet on Kalshi">Bet on Kalshi</button>` : ""}
         </div>
       </div>
       <div class="card">
@@ -267,6 +268,14 @@
       const sd = b ? b.side : side, ln = b ? b.line : line, pr = b ? b.price : (side === "over" ? p.odds?.[k]?.over : p.odds?.[k]?.under) ?? -110;
       const prob = b ? b.prob : r ? (sd === "over" ? r.probs.over : r.probs.under) : null;
       window.PropBets.openTrack({ p, sport: state.sport, stat: k, label: statLabel(k), side: sd, line: ln, price: pr, book: b?.book || "", prob }); };
+    if ($("#kalshiBtn")) $("#kalshiBtn").onclick = () => {
+      const M = window.PropModel, lg = state.sport, r = M.bestBet(p, k, lg), proj = r?.proj, C = M.cfg(lg);
+      const kq = (p.market?.[k] || []).filter(q => q.tk).sort((a, b) => a.l - b.l);
+      const best = r?.best && r.best.book === "Kalshi" ? { line: r.best.line, side: r.best.side } : { line: line, side };
+      // our probability at a strike, blended with that market's vig-free price exactly as the EV does
+      const probAt = (l, sd, q) => { if (!proj) return null; const pr = M.probabilities(p, k, l, proj, lg); const mine = sd === "over" ? pr.over : pr.under, mk = M.marketProb(q, sd); return mk == null ? mine : (1 - C.marketWeight) * mine + C.marketWeight * mk; };
+      window.PropKalshi.openOrder({ p, sport: lg, stat: k, label: statLabel(k), quotes: kq, pick: best, probAt });
+    };
     d.querySelectorAll("[data-corr]").forEach(b => b.onclick = () => select(b.dataset.corr, b.dataset.k));
     d.querySelectorAll("#statTabs .chip").forEach(b => b.onclick = () => select(p.id, b.dataset.k));
     d.querySelectorAll("#rangeTabs .chip").forEach(b => b.onclick = () => { state.range = b.dataset.r; renderDetail(); });
@@ -390,6 +399,7 @@
   });
   const theme = store.get("theme", null);
   if (theme) document.documentElement.dataset.theme = theme;
+  $("#settingsBtn").onclick = () => window.PropKalshi.openSettings();
   $("#themeBtn").onclick = () => {
     const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
     const t = cur === "light" ? "dark" : "light"; document.documentElement.dataset.theme = t; store.set("theme", t); };

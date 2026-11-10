@@ -111,6 +111,14 @@
     dlg.showModal();
   }
 
+  /** Record a bet placed elsewhere (e.g. a real Kalshi order from the order ticket). */
+  function addBet({ p, sport, stat, label, side, line, price, book, stake, prob, real }) {
+    const b = bets();
+    b.push({ id: Date.now().toString(36), sport, playerId: p.id, espnId: p.espnId || null, player: p.name, team: p.team, opp: p.opp, home: p.home,
+      stat, statLabel: label, side, line, price, book, stake: +(+stake).toFixed(2), gameDate: p.gameDate || null, placedAt: new Date().toISOString(), modelProb: prob ?? null, real: real || null });
+    saveBets(b); window.PropBets.onChange?.();
+  }
+
   // ---------------------------------------------------------------- watchlist & alerts
   const watchKey = (sport, pid, stat) => `${sport}|${pid}|${stat}`;
   const watched = () => load("watch", []);
@@ -149,7 +157,7 @@
       const wl = watched();
       const row = x => { const c = M().clv(x);
         return `<tr><td><b>${esc(x.player)}</b><div class="pl-sub">${esc(x.statLabel)} · ${esc(x.team)} ${x.home ? "vs" : "@"} ${esc(x.opp)} · ${x.gameDate ? new Date(x.gameDate).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</div></td>
-          <td>${x.side === "over" ? "Over" : "Under"} ${x.line}</td><td class="num">${odds(x.price)}<div class="pl-sub">${esc(x.book || "")}</div></td><td class="num">${usd(x.stake)}</td>
+          <td>${x.side === "over" ? "Over" : "Under"} ${x.line}</td><td class="num">${odds(x.price)}<div class="pl-sub">${esc(x.book || "")}${x.real ? ` <span class="tag won" title="Placed on Kalshi · order ${esc(x.real.orderId || "")} · ${esc(x.real.ticker || "")}">real · ${esc(x.real.contracts)}×</span>` : ""}</div></td><td class="num">${usd(x.stake)}</td>
           <td class="num">${x.close ? `${x.close.line !== x.line ? x.close.line + " · " : ""}${odds(x.close.price)}` : "—"}</td>
           <td class="num" style="color:${(c?.prob ?? 0) > 0 ? "var(--hit)" : (c?.prob ?? 0) < 0 ? "var(--miss)" : "var(--muted)"}">${c?.prob != null ? (c.prob > 0 ? "+" : "") + (c.prob * 100).toFixed(1) + " pts" : c?.line ? (c.line > 0 ? "+" : "") + c.line + " line" : "—"}</td>
           <td>${x.settled ? `<span class="tag ${x.settled.result === "won" ? "won" : x.settled.result === "lost" ? "lost" : ""}">${esc(x.settled.result)}</span> <span class="pl-sub">${x.settled.actual}</span>` : `<span class="tag mid">open</span>`}</td>
@@ -182,5 +190,5 @@
     if (await settleOpen()) draw();
   }
 
-  window.PropBets = { render, openTrack, toggleWatch, isWatched, watchKey, alerts, updateClose, settleOpen, bets };
+  window.PropBets = { render, openTrack, addBet, toggleWatch, isWatched, watchKey, alerts, updateClose, settleOpen, bets };
 })();

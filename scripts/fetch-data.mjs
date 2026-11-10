@@ -275,6 +275,7 @@ export function parseKalshiMarket(sport, stat, m, quotes) {
   addQuote(quotes, `${sport}|${normName(name)}|${stat}`, {
     b: "Kalshi", k: "kalshi", l: line, o: toAmerican(ya + kalshiFee(ya)), u: toAmerican(na + kalshiFee(na)),
     t: m.expected_expiration_time || m.close_time, vol: Math.round(parseFloat(m.volume_fp || 0)),
+    tk: m.ticker, ya: +ya.toFixed(4), na: +na.toFixed(4),   // market ticker + raw asks, for placing orders
   });
 }
 
