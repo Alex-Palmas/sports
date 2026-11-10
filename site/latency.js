@@ -139,6 +139,7 @@
     el.querySelector("#latPick").hidden = !sessions.length;
     if (!sessions.length) {
       window.PropGames.render(el, null);
+      window.PropSimUI.render(el.querySelector("#latSim"), null, []);
       el.querySelector("#latBody").innerHTML = `<div class="card lat-empty">
         <h2>No recordings yet</h2>
         <p>The recorder runs on GitHub three times a day (about 11:45am, 5:15pm and 11pm ET) and follows every NBA and NFL game that's live or starting soon. Live games appear above within a few minutes; the full prop-latency analysis appears here after the games end.</p>
@@ -148,6 +149,7 @@
     const file = el.querySelector("#latSession").value = loadedFile && sessions.some(s => s.file === loadedFile) ? loadedFile : sessions[0].file;
     if (loadedFile !== file || !current) { current = await getJSON("latency/" + file); loadedFile = file; }
     window.PropGames.render(el, current);
+    window.PropSimUI.render(el.querySelector("#latSim"), current, sessions);
     if (current) renderSession(el, current);
     else el.querySelector("#latBody").innerHTML = `<div class="card empty">Couldn't load this recording.</div>`;
   }

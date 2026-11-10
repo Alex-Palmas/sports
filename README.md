@@ -44,6 +44,15 @@ The **⇄ Arbitrage** view scans every prop for an over at one book plus an unde
 
 NBA game-line moves after each score are analysed the same way, split by situation.
 
+**Player events.** Every stat change for a player with Kalshi lines is recorded, not just the ones that cross a line, together with the price path of the player's next two lines up. Each game view lists every player with Kalshi lines: live stats against each line, its price now and its change since tip-off.
+
+**Trading simulator.** The tab replays the recorded top of the order book (best bid, ask and size from −10s to +2 min around each play) as paper trades. It never places orders.
+- *Settled props*: buy the line a play just settled, hold to $1.
+- *Player events*: after a stat change, buy the player's next line up and sell after the hold.
+- *Game line*: after a score, buy the scoring team and sell after the hold.
+
+You set your feed delay (the recorded ESPN delay, or a hypothetical faster feed), order delay, max price, contracts and hold time. Fills use the recorded best price and size and include Kalshi's taker fee. Queue position, market impact and stat corrections are not modelled, so results are a best case.
+
 `.github/workflows/kalshi-latency.yml` runs at about 11:45am, 5:15pm and 11pm ET. Each run follows whatever games are live or start within 4 hours. While games are on, it pushes a snapshot to the `live-data` branch every 3 minutes, which the app's **Kalshi Latency Study** tab reads for live games. At the end it commits the full recording to `site/latency/`. It only reads data and never places orders.
 
 Run it yourself (the NBA's own CDN feed only works from a home connection):

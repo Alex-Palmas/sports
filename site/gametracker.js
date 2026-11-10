@@ -111,6 +111,7 @@
       ${(r.groupSummary || []).map(g => `<tr><td><b>${esc(g.group)}</b></td><td class="num">${g.markets}</td><td class="num">${g.moved}</td><td class="num">${g.medianAbsChange != null ? Math.round(g.medianAbsChange * 100) + "¢" : "—"}</td><td class="num">${num(g.traded)}</td><td class="num">${sec(g.medianReactStart)}</td><td class="num">${sec(g.medianReactT50)}</td><td class="num">${sec(g.samplingSec)}</td></tr>`).join("")}
       </tbody></table></div>
       <div class="pl-sub">"Starts moving" and "50% repriced" are medians after key plays (${r.league === "nfl" ? "scores and turnovers" : "scores"}), each measured until the next key play. Slower-refreshed market types can't show reactions faster than their refresh interval.</div>
+      ${playersSection(r)}
       <h3 class="sub-h">Every market</h3>
       <div class="gd-ctrls">
         <label>Type <select id="gdGroup">${groups.map(g => `<option value="${esc(g)}"${g === view.group ? " selected" : ""}>${g === "all" ? "All types" : esc(g)}</option>`).join("")}</select></label>
@@ -121,6 +122,17 @@
       </tbody></table></div>
       ${rows.length > 60 ? `<button class="chip" id="gdAll" style="margin-top:8px">${view.all ? "Show top 60" : `Show all ${rows.length}`}</button>` : ""}
     </div>`;
+  }
+
+  const STAT = { pts: "pts", reb: "reb", ast: "ast", fg3: "3PM", pass_yds: "pass yds", rush_yds: "rush yds", rec_yds: "rec yds", rec: "rec", td: "TD" };
+  function playersSection(r) {
+    const ps = r.players || []; if (!ps.length) return "";
+    const shown = view.allPlayers ? ps : ps.slice(0, 12);
+    const line = l => `<span class="ladder${l.settled ? " hit" : l.closed ? " closed" : ""}" title="${esc(l.label)}: ${cents(l.pre)} → ${cents(l.end)}${l.traded ? `, ${num(l.traded)} traded` : ""}">${esc(l.label.replace(/^(\d+\+)\s*/, "$1 "))} <b>${l.settled ? "✓" : cents(l.end)}</b>${!l.settled && l.change ? ` <i style="color:${l.change > 0 ? "var(--hit)" : "var(--miss)"}">${chg(l.change)}</i>` : ""}</span>`;
+    return `<h3 class="sub-h">Players <span class="pl-sub">${ps.length} with Kalshi lines · ✓ = line already reached · price now, change since tip-off</span></h3>
+      <div class="players">${shown.map(p => `<div class="player-row"><div class="pr-head"><b>${esc(p.player)}</b><span class="pl-sub">${p.stats ? Object.entries(p.stats).filter(([, v]) => v).map(([k, v]) => `${v} ${STAT[k] || k}`).join(" · ") || "no stats yet" : ""}${p.events ? ` · ${p.events} events` : ""} · ${num(p.traded)} traded</span></div>
+        <div class="ladders">${p.lines.map(line).join("")}</div></div>`).join("")}</div>
+      ${ps.length > 12 ? `<button class="chip" id="gdPlayers" style="margin-top:8px">${view.allPlayers ? "Show fewer players" : `Show all ${ps.length} players`}</button>` : ""}`;
   }
 
   async function render(el, rec) {
@@ -137,6 +149,7 @@
     if (q("#gdGroup")) q("#gdGroup").onchange = e => { view.group = e.target.value; render(el, rec); };
     if (q("#gdSort")) q("#gdSort").onchange = e => { view.sort = e.target.value; render(el, rec); };
     if (q("#gdAll")) q("#gdAll").onclick = () => { view.all = !view.all; render(el, rec); };
+    if (q("#gdPlayers")) q("#gdPlayers").onclick = () => { view.allPlayers = !view.allPlayers; render(el, rec); };
     // keep scores and live snapshots fresh while this tab is open and something is live
     clearTimeout(timer);
     if (games.some(g => g.state === "in") || !scheduleOk) timer = setTimeout(() => { if (!el.hidden) render(el, rec); }, 60e3);

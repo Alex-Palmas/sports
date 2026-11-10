@@ -241,6 +241,17 @@ export function trajectory(timeline, playT, { final = null, window = 120, seenT 
   if (seenT != null) { const m = at(seenT); out.leftAtSeen = m == null ? null : +Math.max(0, Math.min(1, 1 - (m - pre) / move)).toFixed(3); }
   return out;
 }
+/**
+ * Raw top of the order book around a play, for the trading simulator:
+ * [[secondsAfterPlay, bid, ask, askSize]] from `from` to `to` seconds; the first point is the state at `from`.
+ */
+export function bookWindow(tl, playT, from = -10, to = 120) {
+  const s0 = stateAt(tl, playT + from * 1e3); const out = [];
+  const pt = (p, dt) => [+dt.toFixed(2), p.bid ?? null, p.ask ?? null, p.askSize != null ? Math.round(p.askSize) : null];
+  if (s0) out.push(pt(s0, from));
+  for (const p of tl) { const dt = (p.t - playT) / 1000; if (dt > from && dt <= to) out.push(pt(p, dt)); }
+  return out.length ? out : null;
+}
 /** Seconds until the next scoring play (1s before it), between 3 and 120. */
 export const windowFor = (playT, nextT) => nextT == null ? 120 : Math.max(3, Math.min(120, Math.floor((nextT - playT) / 1000) - 1));
 /** Median share-of-move-done curve across many trajectories. */
@@ -296,6 +307,7 @@ export class Recorder {
     this.crossings = [];
     this.scoring = [];            // NBA scoring plays for the game-line trajectory analysis
     this.feedDelays = [];
+    this.playerEvents = [];       // every stat change for a player who has Kalshi markets on that stat
     this.started = Date.now();
     this.slowPtr = 0;
     this.emptySeries = new Map(); // series → time it last had no markets for live games
@@ -417,9 +429,11 @@ export class Recorder {
       this.feedDelays.push({ league: g.league, d: (now - playT) / 1000 });
       if (kp) g.keyPlays.push({ ...kp, playT, seenT: now });
       if (g.league === "nba") {
-        if (p.scoringPlay && kp?.team) this.scoring.push({ suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: p.scoreValue, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
+        if (p.scoringPlay && kp?.team) this.scoring.push({ league: "nba", suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: p.scoreValue, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
         this.applyIncrements(g, espnIncrements(p), playT, now);
       }
+      // NFL scores feed the game-line simulator
+      if (g.league === "nfl" && kp?.type !== "Turnover" && kp?.team && kp.points) this.scoring.push({ league: "nfl", suffix: g.suffix, game: g.name, playT, seenT: now, team: kp.team, points: kp.points, period: kp.period, secsLeft: kp.secsLeft, home: kp.home, away: kp.away });
     }
     if (g.league === "nfl") {
       // NFL props: compare box-score totals with the previous poll; a crossing is timed to the newest play
@@ -457,7 +471,7 @@ export class Recorder {
         const kp = { type: "Score", team: a.teamTricode, points: a.actionType === "freethrow" ? 1 : a.actionType === "3pt" ? 3 : 2, period: a.period,
           secsLeft: clk ? +clk[1] * 60 + +clk[2] : null, home: +a.scoreHome, away: +a.scoreAway, text: a.description };
         g.keyPlays.push({ ...kp, playT, seenT: now });
-        this.scoring.push({ suffix: g.suffix, game: g.name, playT, seenT: now, ...kp });
+        this.scoring.push({ league: "nba", suffix: g.suffix, game: g.name, playT, seenT: now, ...kp });
       }
       this.applyIncrements(g, nbaIncrements(a), playT, now);
     }
@@ -470,10 +484,45 @@ export class Recorder {
   }
   /** Every Kalshi strike a stat change pushed the player over settles YES. */
   checkCrossings(g, name, stat, before, after, playT, seenT) {
+    let has = false;
     for (const [ticker, m] of this.markets) {
       if (m.suffix !== g.suffix || m.stat !== stat || m.line == null || normName(m.name || "") !== normName(name)) continue;
+      has = true;
       if (before <= m.line && after > m.line) this.crossings.push({ ticker, league: g.league, game: g.name, player: name, stat, line: m.line, playT, seenT });
     }
+    // every stat change is a player event, crossing or not (it moves the player's higher lines too)
+    if (has) this.playerEvents.push({ league: g.league, suffix: g.suffix, game: g.name, player: name, stat, before, after, playT, seenT });
+  }
+  /** A player event with the price path of the player's next two lines it did not settle. */
+  playerEventReport(e) {
+    const rungs = [...this.markets].filter(([, m]) => m.suffix === e.suffix && m.stat === e.stat && m.line != null && m.line >= e.after && normName(m.name || "") === normName(e.player))
+      .sort((a, b) => a[1].line - b[1].line).slice(0, 2)
+      .map(([ticker, m]) => { const tl = this.timelines.get(ticker) || []; return { ticker, line: m.line, traj: trajectory(tl, e.playT, { seenT: e.seenT }), book: bookWindow(tl, e.playT) }; })
+      .filter(r => r.book);
+    const { playT, seenT, suffix, ...rest } = e;
+    return { ...rest, play: new Date(playT).toISOString(), feedDelay: (seenT - playT) / 1000, rungs };
+  }
+  /** Players with Kalshi markets in a game: live stats and every line, from the market rows. */
+  playersReport(g, rows) {
+    const totals = {};
+    for (const [id, t] of Object.entries(g.totals || {})) { const name = t.name || g.names[id]; if (name) totals[normName(name)] = t; }
+    const players = {};
+    for (const r of rows) {
+      if (r.group !== "Player props" || !String(r.label).includes(":")) continue;
+      const [who, what] = String(r.label).split(/:(.*)/s);
+      const key = normName(who); const P = (players[key] ||= { player: who.trim(), stats: null, lines: [], traded: 0, events: 0 });
+      const m = this.markets.get(r.ticker) || {};
+      const cur = m.stat ? totals[key]?.[m.stat] : null;
+      P.lines.push({ ticker: r.ticker, label: what.trim(), stat: m.stat || null, line: r.line, pre: r.pre, end: r.end, change: r.change, traded: r.traded, closed: r.closed,
+        settled: cur != null && r.line != null ? cur > r.line : null });
+      P.traded += r.traded || 0;
+    }
+    for (const e of this.playerEvents) if (e.suffix === g.suffix && players[normName(e.player)]) players[normName(e.player)].events++;
+    for (const [key, P] of Object.entries(players)) {
+      const t = totals[key]; if (t) P.stats = Object.fromEntries(Object.entries(t).filter(([k, v]) => k !== "name" && typeof v === "number"));
+      P.lines.sort((a, b) => String(a.stat ?? a.label).localeCompare(String(b.stat ?? b.label)) || (a.line ?? 0) - (b.line ?? 0));
+    }
+    return Object.values(players).sort((a, b) => b.traded - a.traded);
   }
 
   /** Per-game comparison of every Kalshi market. */
@@ -517,14 +566,14 @@ export class Recorder {
     return { league: g.league, id: g.id, name: g.name, home: g.home, away: g.away, homeName: g.homeName, awayName: g.awayName, start: g.start,
       state: g.state, detail: g.detail, score: g.score, suffix: g.suffix, tip: new Date(tip).toISOString(),
       winProb: wp, keyPlays: g.keyPlays.map(({ playT, seenT, ...k }) => ({ ...k, t: new Date(playT).toISOString(), feedDelay: (seenT - playT) / 1000 })),
-      groupSummary, markets: rows };
+      groupSummary, players: this.playersReport(g, rows), markets: rows };
   }
 
   results() {
     const crossings = this.crossings.map(c => {
       const tl = this.timelines.get(c.ticker) || [];
       const r = measureCrossing(c, tl);
-      if (!r.alreadyPriced) r.traj = trajectory(tl, c.playT, { final: 1, seenT: c.seenT });
+      if (!r.alreadyPriced) { r.traj = trajectory(tl, c.playT, { final: 1, seenT: c.seenT }); r.book = bookWindow(tl, c.playT); }
       return r;
     });
     const games = [...this.games.values()].filter(g => g.suffix && g.seen.size);
@@ -533,25 +582,28 @@ export class Recorder {
     const byGame = {}; for (const s of this.scoring) (byGame[s.suffix] ||= []).push(s);
     for (const list of Object.values(byGame)) { list.sort((a, b) => a.playT - b.playT); list.forEach((s, i) => nextScore.set(s, list[i + 1]?.playT ?? null)); }
     const scoreReactions = this.scoring.map(s => {
-      const own = [...this.markets].find(([t, m]) => m.series === "KXNBAGAME" && m.suffix === s.suffix && t.endsWith("-" + tricode(s.team)));
-      const tls = [...this.markets].filter(([, m]) => m.series === "KXNBAGAME" && m.suffix === s.suffix).map(([t]) => this.timelines.get(t) || []);
+      const lg = s.league || "nba", gameSeries = LEAGUES[lg].game;
+      const own = [...this.markets].find(([t, m]) => m.series === gameSeries && m.suffix === s.suffix && t.endsWith("-" + kalshiCode(lg, s.team)));
+      const tls = [...this.markets].filter(([, m]) => m.series === gameSeries && m.suffix === s.suffix).map(([t]) => this.timelines.get(t) || []);
       const tl = own ? this.timelines.get(own[0]) || [] : [];
       const margin = s.home != null && s.away != null ? Math.abs(s.home - s.away) : null;
       const window = windowFor(s.playT, nextScore.get(s));
       return {
-        game: s.game, team: s.team, points: s.points, period: s.period, secsLeft: s.secsLeft, margin,
+        league: lg, game: s.game, team: s.team, points: s.points, period: s.period, secsLeft: s.secsLeft, margin,
         clutch: s.period >= 4 && s.secsLeft != null && s.secsLeft <= 300 && margin != null && margin <= 8,
         playT: s.playT, feedDelay: (s.seenT - s.playT) / 1000, window,
         kalshiDelay: measureScoreReaction(s.playT, tls),
         traj: own ? trajectory(tl, s.playT, { seenT: s.seenT, window }) : null,
+        book: own ? bookWindow(tl, s.playT) : null,   // for the trading simulator (not cut at the next score)
       };
     });
     const measured = crossings.filter(c => !c.alreadyPriced);
     const stale = measured.filter(c => c.feedFirst && c.staleEdge != null && c.staleEdge > 0);
     const pTraj = measured.map(c => c.traj).filter(t => t && !t.flat);
-    const gTraj = scoreReactions.map(r => r.traj).filter(t => t && !t.flat);
+    const nbaReactions = scoreReactions.filter(r => r.league === "nba");
+    const gTraj = nbaReactions.map(r => r.traj).filter(t => t && !t.flat);
     const groups = {};
-    for (const r of scoreReactions) {
+    for (const r of nbaReactions) {
       if (!r.traj) continue;
       (groups[`${r.clutch ? "Last 5 min, within 8" : "Rest of game"}|${r.points}`] ||= []).push(r.traj);
     }
@@ -572,7 +624,7 @@ export class Recorder {
         medianKalshiDelay: median(measured.map(c => c.kalshiDelay)),
         feedFirstShare: measured.length ? measured.filter(c => c.feedFirst).length / measured.length : null,
         staleChances: stale.length, medianStaleEdge: median(stale.map(c => c.staleEdge)),
-        scoringPlays: scoreReactions.length, medianGameLineDelay: median(scoreReactions.map(r => r.kalshiDelay)),
+        scoringPlays: nbaReactions.length, medianGameLineDelay: median(nbaReactions.map(r => r.kalshiDelay)),
         propMove: median(pTraj.map(t => t.move)), propStart: median(pTraj.map(t => t.tStart)), propT50: median(pTraj.map(t => t.t50)),
         propT90: median(pTraj.map(t => t.t90)), propSteps: median(pTraj.map(t => t.steps)), propTraded: median(pTraj.map(t => t.traded)),
         propLeftAtSeen: median(pTraj.map(t => t.leftAtSeen)),
@@ -585,6 +637,7 @@ export class Recorder {
       gameBySituation,
       gameReports: games.map(g => this.gameReport(g)),
       crossings: crossings.map(({ seenT, playT, ...c }) => ({ ...c, play: new Date(playT).toISOString() })),
+      playerEvents: this.playerEvents.slice(-4000).map(e => this.playerEventReport(e)),
       scoreReactions: scoreReactions.map(({ playT, ...r }) => ({ ...r, play: new Date(playT).toISOString() })),
     };
   }
