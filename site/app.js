@@ -38,6 +38,9 @@
   const streak = (logs, k, line, side) => { let n = 0; for (const l of logs) { if (isHit(l.stats[k], line, side)) n++; else break; } return n; };
   const pct = x => Math.round(x * 100) + "%";
   const fmt = x => (Math.round(x * 10) / 10).toString();
+  /** Games against tonight's opponent (deeper history from data.json when available). */
+  const h2hLogs = p => (p.h2h && p.h2h.length ? p.h2h : p.logs.filter(l => l.opp === p.opp));
+  const jersey = p => p.jersey != null && p.jersey !== "" ? `<span class="jersey" title="Jersey number">#${esc(p.jersey)}</span>` : "";
   const odds = o => (o > 0 ? "+" : "") + o;
   const heat = r => {
     // red -> neutral -> green
@@ -100,6 +103,7 @@
         l5: rate(p.logs.slice(0, 5), k, line, state.side),
         l10: rate(p.logs.slice(0, 10), k, line, state.side),
         l20: rate(p.logs.slice(0, 20), k, line, state.side),
+        h2h: (() => { const g = h2hLogs(p).filter(l => l.stats?.[k] != null); return g.length ? rate(g, k, line, state.side) : null; })(), h2hN: h2hLogs(p).length,
         edge: (avg(p.logs.slice(0, 10), k) - line) / Math.max(line, 0.5) * (state.side === "over" ? 1 : -1),
         streak: streak(p.logs, k, line, state.side),
         val: bestValue(p, k, state.side) });
@@ -107,7 +111,7 @@
     const q = state.q.trim().toLowerCase();
     if (state.marketOnly) out.splice(0, out.length, ...out.filter(x => x.val));
     const f = q ? out.filter(x => x.p.name.toLowerCase().includes(q) || x.p.team.toLowerCase().includes(q) || team(x.p.team).name.toLowerCase().includes(q) || statLabel(x.k).toLowerCase().includes(q)) : out;
-    const by = { hit: (a, b) => b.l10 - a.l10 || b.l20 - a.l20, edge: (a, b) => b.edge - a.edge, value: (a, b) => (b.val ? b.val.ev : -9) - (a.val ? a.val.ev : -9) || b.l10 - a.l10, streak: (a, b) => b.streak - a.streak || b.l10 - a.l10, name: (a, b) => a.p.name.localeCompare(b.p.name) }[state.sort];
+    const by = { hit: (a, b) => b.l10 - a.l10 || b.l20 - a.l20, edge: (a, b) => b.edge - a.edge, value: (a, b) => (b.val ? b.val.ev : -9) - (a.val ? a.val.ev : -9) || b.l10 - a.l10, streak: (a, b) => b.streak - a.streak || b.l10 - a.l10, h2h: (a, b) => (b.h2h ?? -1) - (a.h2h ?? -1) || b.h2hN - a.h2hN || b.l10 - a.l10, name: (a, b) => a.p.name.localeCompare(b.p.name) }[state.sort];
     return f.sort(by);
   }
 
@@ -133,12 +137,13 @@
     for (const r of rows.slice(0, 400)) {
       const li = el("li");
       if (state.sel && state.sel.id === r.p.id && state.sel.k === r.k) li.className = "sel";
-      li.innerHTML = `<div class="pl-cell">${avatar(r.p, 38)}<div style="min-width:0"><div class="pl-name">${esc(r.p.name)}</div>
+      li.innerHTML = `<div class="pl-cell">${avatar(r.p, 38)}<div style="min-width:0"><div class="pl-name"><span class="nm">${esc(r.p.name)}</span>${jersey(r.p)}</div>
         <div class="pl-sub">${r.p.team} ${r.p.home ? "vs" : "@"} ${r.p.opp} · ${state.side === "over" ? "O" : "U"} ${r.line} ${esc(statLabel(r.k))}${isProj(r.p, r.k) ? ` <span class="tag">proj</span>` : ""}</div>
         ${r.val ? `<div class="pl-sub best-row">Best: ${state.side === "over" ? "O" : "U"} ${r.val.q.l} <b>${odds(r.val.price)}</b> ${esc(shortBook(r.val.q.b))} · <span style="color:${evColor(r.val.ev)};font-weight:700">EV ${evTxt(r.val.ev)}</span></div>` : ""}</div></div>
         <div class="pill" style="${heat(r.l5)}">${pct(r.l5)}</div>
         <div class="pill" style="${heat(r.l10)}">${pct(r.l10)}</div>
-        <div class="pill" style="${heat(r.l20)}">${pct(r.l20)}</div>`;
+        <div class="pill" style="${heat(r.l20)}">${pct(r.l20)}</div>
+        <div class="pill" style="${r.h2h == null ? "" : heat(r.h2h)}" title="${r.h2hN} game${r.h2hN === 1 ? "" : "s"} vs ${esc(r.p.opp)}">${r.h2h == null ? "—" : pct(r.h2h)}</div>`;
       li.onclick = () => select(r.p.id, r.k);
       frag.append(li);
     }
@@ -155,7 +160,7 @@
 
   function rangeLogs(p) {
     const r = state.range;
-    if (r === "H2H") return p.logs.filter(l => l.opp === p.opp);
+    if (r === "H2H") return h2hLogs(p);
     if (r === "Home") return p.logs.filter(l => l.home);
     if (r === "Away") return p.logs.filter(l => !l.home);
     if (r === "Season") return curSeason(p);
@@ -210,13 +215,13 @@
     const rankTxt = rank <= n / 3 ? "Tough" : rank > n * 2 / 3 ? "Soft" : "Neutral";
     const rankColor = rank <= n / 3 ? "var(--miss)" : rank > n * 2 / 3 ? "var(--hit)" : "var(--amber)";
 
-    const splits = [["L5", p.logs.slice(0, 5)], ["L10", p.logs.slice(0, 10)], ["L20", p.logs.slice(0, 20)], ["Season", curSeason(p)], ["Last 40", p.logs], ["H2H", p.logs.filter(l => l.opp === p.opp)], ["Home", p.logs.filter(l => l.home)], ["Away", p.logs.filter(l => !l.home)]];
+    const splits = [["L5", p.logs.slice(0, 5)], ["L10", p.logs.slice(0, 10)], ["L20", p.logs.slice(0, 20)], ["Season", curSeason(p)], ["Last 40", p.logs], [`H2H vs ${p.opp}`, h2hLogs(p)], ["Home", p.logs.filter(l => l.home)], ["Away", p.logs.filter(l => !l.home)]];
 
     d.innerHTML = `
       <button class="mobile-back" id="backBtn">← All props</button>
       <div class="card player-head">
         ${avatar(p, 84, "av-lg")}
-        <div class="ph-main"><h1>${esc(p.name)}${p.injury ? ` <span class="tag inj">${esc(p.injury)}</span>` : ""}</h1><div class="pl-sub team-line">${teamLogo(p.team, 20)}${esc(p.pos)} · ${esc(t ? t.name : p.team)}</div></div>
+        <div class="ph-main"><h1>${esc(p.name)} ${jersey(p)}${p.injury ? ` <span class="tag inj">${esc(p.injury)}</span>` : ""}</h1><div class="pl-sub team-line">${teamLogo(p.team, 20)}${esc(p.pos)} · ${esc(t ? t.name : p.team)}</div></div>
         <div class="game-tag"><span class="pl-sub">Next game</span><b class="matchup">${teamLogo(p.team, 26)}${p.team} <span class="vs">${p.home ? "vs" : "@"}</span> ${teamLogo(p.opp, 26)}${p.opp}</b><span class="pl-sub">${esc(gameWhen(p))}${p.game?.details ? ` · ${esc(p.game.details)}${p.game.total ? ` · O/U ${p.game.total}` : ""}` : ""}</span></div>
         <div class="ph-actions">
           <button class="chip" id="watchBtn" aria-pressed="${window.PropBets.isWatched(window.PropBets.watchKey(state.sport, p.id, k))}">${window.PropBets.isWatched(window.PropBets.watchKey(state.sport, p.id, k)) ? "★ Watching" : "☆ Watch"}</button>
@@ -248,6 +253,7 @@
         ${logs.length ? chartSVG(logs, k, line, side) : `<div class="empty">No games in this split.</div>`}
       </div>
       ${edgeCards(p, k, line, side)}
+      ${h2hCard(p, k, line, side)}
       ${shopCard(p, k, side, line)}
       <div class="card"><h2>Splits at ${side === "over" ? "O" : "U"} ${line}</h2><div class="splits">
         ${splits.map(([lab, lg]) => { const r = rate(lg, k, line, side); return `<div class="split"><div class="pl-sub">${lab} · ${lg.length} gp</div><b style="font-size:17px">${lg.length ? pct(r) : "—"}</b> <span class="pl-sub">avg ${fmt(avg(lg, k))}</span><div class="bar"><i style="width:${r * 100}%;background:${r >= 0.5 ? "var(--hit)" : "var(--miss)"}"></i></div></div>`; }).join("")}
@@ -354,6 +360,29 @@
   function miniBars(v) {
     if (v.length < 3) return ""; const hi = Math.max(...v, 1);
     return `<svg class="minibars" viewBox="0 0 ${v.length * 8} 28" preserveAspectRatio="none" aria-hidden="true">${v.map((x, i) => `<rect x="${i * 8 + 1}" y="${28 - x / hi * 26}" width="6" height="${x / hi * 26}" rx="1.5"/>`).join("")}</svg>`;
+  }
+
+  /** Head to head: every recent game against tonight's opponent, with the result and the hit at this line. */
+  function h2hCard(p, k, line, side) {
+    const g = h2hLogs(p).filter(l => l.stats?.[k] != null), ot = sport().teams.find(t => t.abbr === p.opp);
+    const head = `<h2>Head to head ${teamLogo(p.opp, 20)}<span class="pl-sub">vs ${esc(ot ? ot.name : p.opp)}${g.length ? ` · last ${g.length} meeting${g.length === 1 ? "" : "s"}` : ""}</span></h2>`;
+    if (!g.length) return `<div class="card h2h-card">${head}<div class="pl-sub">No games against ${esc(p.opp)} in the last few seasons.</div></div>`;
+    const hits = g.filter(l => isHit(l.stats[k], line, side)).length, a = avg(g, k), seasonAvg = avg(curSeason(p).length ? curSeason(p) : p.logs.slice(0, 20), k);
+    const diff = a - seasonAvg;
+    return `<div class="card h2h-card">${head}
+      <div class="h2h-kpis">
+        <div><span class="pl-sub">${side === "over" ? "Over" : "Under"} ${line}</span><b style="color:${hits / g.length >= 0.5 ? "var(--hit)" : "var(--miss)"}">${hits}/${g.length}</b><span class="pl-sub">${pct(hits / g.length)}</span></div>
+        <div><span class="pl-sub">Avg vs ${esc(p.opp)}</span><b>${fmt(a)}</b><span class="pl-sub" style="color:${diff >= 0 ? "var(--hit)" : "var(--miss)"}">${diff >= 0 ? "+" : ""}${fmt(diff)} vs his season avg</span></div>
+        <div><span class="pl-sub">Best / worst</span><b>${Math.max(...g.map(l => l.stats[k]))} / ${Math.min(...g.map(l => l.stats[k]))}</b><span class="pl-sub">in these games</span></div>
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Date</th><th></th><th>Game</th>${g.some(l => l.min != null) ? `<th class="num">Min</th>` : ""}<th class="num">${esc(statLabel(k))}</th><th class="num">${side === "over" ? "O" : "U"} ${line}</th></tr></thead><tbody>
+        ${g.map(l => { const h = isHit(l.stats[k], line, side), push = l.stats[k] === line;
+          return `<tr><td>${new Date(l.date + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric", year: "2-digit" })}${l.post ? ` <span class="tag">playoffs</span>` : ""}</td><td class="pl-sub">${l.home ? "vs" : "@"}</td>
+            <td>${l.result ? `<b class="${l.result === "W" ? "h-over" : "h-under"}">${esc(l.result)}</b> ` : ""}${esc(l.score || "")}</td>${g.some(x => x.min != null) ? `<td class="num">${l.min ?? "—"}</td>` : ""}
+            <td class="num"><b>${l.stats[k]}</b></td><td class="num ${push ? "" : h ? "h-over" : "h-under"}">${push ? "PUSH" : h ? "HIT" : "MISS"}</td></tr>`; }).join("")}
+      </tbody></table></div>
+      <div class="pl-sub">Small samples: a handful of meetings says less than his recent form, so the projection doesn't use head to head directly.</div>
+    </div>`;
   }
 
   function shopCard(p, k, side, line) {

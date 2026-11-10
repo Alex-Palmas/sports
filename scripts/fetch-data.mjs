@@ -176,7 +176,7 @@ async function rosterOf(cfg, teamId) {
   let list = r?.athletes || [];
   if (list[0]?.items) list = list.flatMap(g => g.items); // grouped rosters (NFL/NHL/MLB)
   return list.filter(a => (a.status?.type ?? "active") === "active" && (!cfg.rosterFilter || cfg.rosterFilter(a)))
-    .map(a => ({ id: a.id, name: a.displayName, pos: a.position?.abbreviation || "", injury: a.injuries?.[0]?.status || null }));
+    .map(a => ({ id: a.id, name: a.displayName, pos: a.position?.abbreviation || "", jersey: a.jersey ?? null, injury: a.injuries?.[0]?.status || null }));
 }
 
 async function gameLog(cfg, athleteId, season) {
@@ -195,7 +195,7 @@ async function gameLog(cfg, athleteId, season) {
         if (!cfg.played(raw)) continue;
         out.push({
           date: meta.gameDate.slice(0, 10), opp: meta.opponent?.abbreviation || "?", home: meta.atVs !== "@",
-          min: cfg.minutes(raw), season: seasonLabel, post: post || undefined, result: meta.gameResult || undefined,
+          min: cfg.minutes(raw), season: seasonLabel, post: post || undefined, result: meta.gameResult || undefined, score: meta.score || undefined,
           stats: cfg.row(raw),
         });
       }
@@ -337,7 +337,20 @@ async function buildSport(key, cfg, quotes) {
         logs = logs.concat(prev.filter(l => !logs.some(x => x.date === l.date)));
       }
       logs.sort((x, y) => y.date.localeCompare(x.date));
-      logs = logs.slice(0, 40);
+      // head to head: every game against tonight's opponent, reaching two more seasons back
+      const opp = side.opp.abbreviation;
+      let h2hPool = logs.slice();
+      const oldest = logs[logs.length - 1]?.season;
+      if (oldest) {
+        const param = (parseInt(oldest, 10) || new Date().getFullYear()) - (key === "nba" || key === "nhl" ? 0 : 1); // ESPN param for the season before `oldest`
+        for (const yr of [param, param - 1]) {
+          const older = await gameLog(cfg, p.id, yr);
+          h2hPool = h2hPool.concat(older.filter(l => l.opp === opp && !h2hPool.some(x => x.date === l.date)));
+        }
+      }
+      const h2h = h2hPool.filter(l => l.opp === opp).sort((x, y) => y.date.localeCompare(x.date)).slice(0, 15)
+        .map(({ date, season, home, min, post, result, score, stats }) => ({ date, season, home, min, post, result, score, stats: { ...stats } }));
+      logs = logs.slice(0, 40).map(({ score, ...l }) => l);
       if (!logs.length) continue;
       const lines = {}, oddsOut = {}, src = {}, market = {};
       const gameT = new Date(side.g.date).getTime();
@@ -367,7 +380,7 @@ async function buildSport(key, cfg, quotes) {
         src[s] = "proj";
       }
       if (!Object.keys(lines).length) continue;
-      for (const l of logs) for (const k of Object.keys(l.stats)) if (k.startsWith("_")) delete l.stats[k];
+      for (const l of [...logs, ...h2h]) for (const k of Object.keys(l.stats)) if (k.startsWith("_")) delete l.stats[k];
       // with/without each teammate who is out tonight (this season's games only)
       const season = logs[0]?.season, curLogs = logs.filter(l => l.season === season);
       const withWithout = out.map(t => {
@@ -379,7 +392,7 @@ async function buildSport(key, cfg, quotes) {
       const lastDate = logs[0]?.date; const restDays = lastDate ? Math.max(0, Math.round((Date.parse(side.g.date.slice(0, 10)) - Date.parse(lastDate)) / 86400e3) - 1) : null;
       const go = side.g.odds;
       players.push({
-        id: `${key}-${p.id}`, espnId: p.id, name: p.name, team: side.team.abbreviation, pos: p.pos, injury: p.injury,
+        id: `${key}-${p.id}`, espnId: p.id, name: p.name, jersey: p.jersey, team: side.team.abbreviation, pos: p.pos, injury: p.injury, h2h,
         opp: side.opp.abbreviation, home: side.home, gameDate: side.g.date,
         game: go ? { details: go.details, total: go.total, spread: go.spread, favorite: go.fav, moneyline: go.moneyline, teamSpread: go.spread == null ? null : (go.fav === side.team.abbreviation ? -go.spread : go.spread) } : null,
         restDays, withWithout, teammatesQuestionable: questionable.filter(q => q.name !== p.name),
