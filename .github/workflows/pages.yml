@@ -57,7 +57,7 @@ jobs:
         run: node scripts/fetch-data.mjs
 
       - uses: actions/cache/save@v4
-        if: always() && hashFiles('.cache/odds.json') != ''
+        if: always() && hashFiles('.cache/**') != ''
         with:
           path: .cache
           key: odds-${{ github.run_id }}

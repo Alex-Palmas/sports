@@ -28,6 +28,7 @@ const ODDS_KEY = process.env.ODDS_API_KEY || "";
 const FETCH_ODDS = process.env.FETCH_ODDS === "1" || process.env.FETCH_ODDS === "true";
 const ODDS_MAX_CREDITS = +(process.env.ODDS_MAX_CREDITS || 16);
 const ODDS_CACHE = process.env.ODDS_CACHE || ".cache/odds.json";
+const HISTORY = process.env.HISTORY || ".cache/history.json";   // opening lines + daily line history (kept between runs)
 const ODDS_REGIONS = (process.env.ODDS_REGIONS || "us").split(",").map(x => x.trim()).filter(Boolean);
 const KALSHI = process.env.KALSHI !== "0";
 
@@ -134,6 +135,15 @@ const SPORTS = {
 };
 
 // ---------------------------------------------------------------- ESPN
+/** Position group for defense-vs-position. */
+export function posGroup(league, pos) {
+  pos = String(pos || "").toUpperCase();
+  if (league === "nba") return /C/.test(pos) && !/G|F/.test(pos.replace("C", "")) ? "C" : /F/.test(pos) ? "F" : "G";
+  if (league === "nfl") return ["QB", "RB", "WR", "TE"].includes(pos) ? pos : "OTHER";
+  if (league === "nhl") return pos === "D" ? "D" : "F";
+  return "ALL";
+}
+
 async function upcomingGames(cfg) {
   const now = new Date(), end = new Date(now.getTime() + cfg.lookAheadDays * 86400e3);
   // ESPN scoreboards are keyed by US-local day and don't accept ranges for every league: fetch day by day.
@@ -148,7 +158,12 @@ async function upcomingGames(cfg) {
     const c = e.competitions?.[0]; if (!c) continue;
     const home = c.competitors.find(x => x.homeAway === "home"), away = c.competitors.find(x => x.homeAway === "away");
     if (!home || !away) continue;
-    games.push({ id: e.id, date: e.date, name: e.shortName, home: home.team, away: away.team });
+    // ESPN's consensus line: "BOS -5.5" and the total
+    const o = c.odds?.[0]; let fav = null, spread = null;
+    const m = /^([A-Z]{2,4})\s+(-?\d+(?:\.\d+)?)$/.exec(o?.details || "");
+    let moneyline = null;
+    if (m) { fav = m[1]; spread = Math.abs(+m[2]); if (spread >= 100) { moneyline = -spread; spread = null; } } // NHL/MLB: "MIN -130" is a moneyline
+    games.push({ id: e.id, date: e.date, name: e.shortName, home: home.team, away: away.team, odds: o ? { details: o.details || null, total: o.overUnder ?? null, fav, spread, moneyline } : null });
   }
   return games;
 }
@@ -293,7 +308,12 @@ async function buildSport(key, cfg, quotes) {
       const avg = {}; for (const k of Object.keys(recent[0]?.stats || {})) avg[k] = mean(recent.map(l => l.stats[k]));
       return { ...a, logs, recentGames: recent.length, recentMin: mean(recent.map(l => l.min ?? 0)), avg };
     });
-    for (const p of cfg.select(withLogs)) {
+    // teammates ruled out (or doubtful) tonight: kept off the board, used for with/without splits
+    // (rotation players only where minutes exist: a 6-minute bench player being out moves nothing)
+    const out = withLogs.filter(a => /out|doubtful|suspension/i.test(a.injury || "") && a.recentGames >= 3 && (key === "nfl" || key === "mlb" || (a.recentMin || 0) >= 15))
+      .sort((x, y) => (y.recentMin || 0) - (x.recentMin || 0)).slice(0, 3);
+    const questionable = withLogs.filter(a => /questionable|day-to-day/i.test(a.injury || "") && a.recentGames >= 3).map(a => ({ name: a.name, status: a.injury }));
+    for (const p of cfg.select(withLogs.filter(a => !/out|doubtful|suspension/i.test(a.injury || "")))) {
       // add last season for a deeper sample
       let logs = p.logs;
       if (logs.length < 30) {
@@ -334,9 +354,21 @@ async function buildSport(key, cfg, quotes) {
       }
       if (!Object.keys(lines).length) continue;
       for (const l of logs) for (const k of Object.keys(l.stats)) if (k.startsWith("_")) delete l.stats[k];
+      // with/without each teammate who is out tonight (this season's games only)
+      const season = logs[0]?.season, curLogs = logs.filter(l => l.season === season);
+      const withWithout = out.map(t => {
+        const played = new Set(t.logs.filter(l => l.season === season).map(l => l.date));
+        const w = curLogs.filter(l => played.has(l.date)), wo = curLogs.filter(l => !played.has(l.date));
+        const avg = arr => Object.fromEntries(Object.keys(lines).map(k => [k, arr.length ? +mean(arr.map(l => l.stats[k] ?? 0)).toFixed(2) : null]));
+        return { teammate: t.name, status: t.injury, pos: t.pos, gamesWith: w.length, gamesWithout: wo.length, avgWith: avg(w), avgWithout: avg(wo), datesWithout: wo.map(l => l.date) };
+      }).filter(x => x.gamesWithout >= 1);
+      const lastDate = logs[0]?.date; const restDays = lastDate ? Math.max(0, Math.round((Date.parse(side.g.date.slice(0, 10)) - Date.parse(lastDate)) / 86400e3) - 1) : null;
+      const go = side.g.odds;
       players.push({
         id: `${key}-${p.id}`, espnId: p.id, name: p.name, team: side.team.abbreviation, pos: p.pos, injury: p.injury,
         opp: side.opp.abbreviation, home: side.home, gameDate: side.g.date,
+        game: go ? { details: go.details, total: go.total, spread: go.spread, favorite: go.fav, moneyline: go.moneyline, teamSpread: go.spread == null ? null : (go.fav === side.team.abbreviation ? -go.spread : go.spread) } : null,
+        restDays, withWithout, teammatesQuestionable: questionable.filter(q => q.name !== p.name),
         headshot: `https://a.espncdn.com/i/headshots/${key}/players/full/${p.id}.png`,
         lines, odds: oddsOut, lineSource: src, market, logs,
       });
@@ -360,6 +392,26 @@ async function buildSport(key, cfg, quotes) {
     ranked.forEach((r, i) => { (oppRank[r.abbr] ||= {})[s.key] = i + 1; }); // 1 = allows least (toughest)
   }
   for (const p of players) p.oppRank = oppRank[p.opp] || {};
+
+  // Defense vs. position: how much each team allows to a position group relative to those players' own averages
+  const grp = p => posGroup(key, p.pos);
+  const allowPos = {};
+  for (const p of players) {
+    const season = p.logs[0]?.season, cur = p.logs.filter(l => l.season === season), g = grp(p);
+    for (const s of stats) {
+      const m = mean(cur.map(l => l.stats[s.key] ?? 0)); if (!m) continue;
+      for (const l of cur) (((allowPos[g] ||= {})[l.opp] ||= {})[s.key] ||= []).push((l.stats[s.key] ?? 0) / m);
+    }
+  }
+  for (const p of players) {
+    const g = grp(p), table = allowPos[g] || {}, out = { group: g, rank: {}, factor: {}, n: {} };
+    for (const s of stats) {
+      const rows = teams.map(t => { const a = table[t.abbr]?.[s.key] || []; return { abbr: t.abbr, v: a.length >= 4 ? mean(a) : null, n: a.length }; }).filter(r => r.v != null).sort((a, b) => a.v - b.v);
+      const i = rows.findIndex(r => r.abbr === p.opp);
+      if (i >= 0) { out.rank[s.key] = i + 1; out.factor[s.key] = +rows[i].v.toFixed(3); out.n[s.key] = rows[i].n; out.of = rows.length; }
+    }
+    p.dvp = out;
+  }
   return { name: cfg.name, teams, stats, players, teamCount: teams.length };
 }
 
@@ -374,6 +426,7 @@ async function main() {
   const quotes = { ...(odds.quotes || {}) };
   for (const [id, qs] of Object.entries(kalshi)) (quotes[id] ||= []).push(...qs);
 
+  let history = { lines: {} }; try { history = JSON.parse(await readFile(HISTORY, "utf8")); } catch {}
   const out = { generated: new Date().toISOString(), live: true, sources: { espn: new Date().toISOString(), sportsbooks: odds.fetched || null, kalshi: kalshiFetched }, sports: {} };
   const only = (process.env.SPORTS || "nba,nfl,nhl,mlb").split(",");
   for (const key of only) {
@@ -383,9 +436,50 @@ async function main() {
     console.log(`${key}: ${ps.length} players, ${ps.reduce((a, p) => a + Object.keys(p.market).length, 0)} props with market prices`);
   }
   if (!Object.values(out.sports).some(s => s.players.length)) { console.error("No players fetched; not writing data.json"); process.exit(1); }
+  applyHistory(out, history);
+  await mkdir(dirname(HISTORY), { recursive: true });
+  await writeFile(HISTORY, JSON.stringify(history));
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, JSON.stringify(out));
   console.log(`wrote ${OUT}`);
+}
+
+/**
+ * Opening lines and line history. For every prop we remember, per game date, the first line and
+ * prices we saw (the "open") and the latest; later runs resolve past entries against the player's
+ * game log so the app can show "when his line was this high, he went over X of N times".
+ * Mutates both `out` (adds p.lineMove, p.lineHistory, q.ol/q.oo/q.ou on quotes) and `history`.
+ */
+export function applyHistory(out, history, now = Date.now()) {
+  history.lines ||= {};
+  const keep = now - 150 * 86400e3;
+  for (const [key, sport] of Object.entries(out.sports)) for (const p of sport.players || []) {
+    const day = (p.gameDate || "").slice(0, 10);
+    p.lineMove = {}; p.lineHistory = {};
+    for (const [stat, line] of Object.entries(p.lines || {})) {
+      const id = `${key}|${normName(p.name)}|${stat}`;
+      const h = (history.lines[id] ||= {});
+      const best = p.odds?.[stat] || {};
+      const cur = { line, over: best.over ?? null, under: best.under ?? null, src: p.lineSource?.[stat] || null, t: new Date(now).toISOString() };
+      const e = (h[day] ||= { open: cur, books: {} });
+      e.last = cur;
+      // per-book openers
+      for (const q of p.market?.[stat] || []) {
+        if (q.alt) continue;
+        // Kalshi lists a ladder of lines per player: track each strike separately
+        const bk = (e.books[q.k === "kalshi" ? `kalshi@${q.l}` : q.k] ||= { l: q.l, o: q.o ?? null, u: q.u ?? null });
+        q.ol = bk.l; q.oo = bk.o; q.ou = bk.u;
+      }
+      p.lineMove[stat] = { openLine: e.open.line, openOver: e.open.over, openUnder: e.open.under, openSrc: e.open.src, openedAt: e.open.t };
+      // resolved history: earlier dates with a game-log result
+      const byDate = Object.fromEntries((p.logs || []).map(l => [l.date, l.stats?.[stat]]));
+      p.lineHistory[stat] = Object.entries(h).filter(([d]) => d < day && byDate[d] != null)
+        .sort((a, b) => b[0].localeCompare(a[0])).slice(0, 25)
+        .map(([d, x]) => ({ date: d, line: x.last?.line ?? x.open.line, src: x.last?.src ?? x.open.src, actual: byDate[d] }));
+      for (const d of Object.keys(h)) if (Date.parse(d) < keep) delete h[d];
+    }
+  }
+  return out;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();

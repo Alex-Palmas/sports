@@ -217,7 +217,11 @@
       <div class="card player-head">
         ${avatar(p, 84, "av-lg")}
         <div class="ph-main"><h1>${esc(p.name)}${p.injury ? ` <span class="tag inj">${esc(p.injury)}</span>` : ""}</h1><div class="pl-sub team-line">${teamLogo(p.team, 20)}${esc(p.pos)} · ${esc(t ? t.name : p.team)}</div></div>
-        <div class="game-tag"><span class="pl-sub">Next game</span><b class="matchup">${teamLogo(p.team, 26)}${p.team} <span class="vs">${p.home ? "vs" : "@"}</span> ${teamLogo(p.opp, 26)}${p.opp}</b><span class="pl-sub">${esc(gameWhen(p))}</span></div>
+        <div class="game-tag"><span class="pl-sub">Next game</span><b class="matchup">${teamLogo(p.team, 26)}${p.team} <span class="vs">${p.home ? "vs" : "@"}</span> ${teamLogo(p.opp, 26)}${p.opp}</b><span class="pl-sub">${esc(gameWhen(p))}${p.game?.details ? ` · ${esc(p.game.details)}${p.game.total ? ` · O/U ${p.game.total}` : ""}` : ""}</span></div>
+        <div class="ph-actions">
+          <button class="chip" id="watchBtn" aria-pressed="${window.PropBets.isWatched(window.PropBets.watchKey(state.sport, p.id, k))}">${window.PropBets.isWatched(window.PropBets.watchKey(state.sport, p.id, k)) ? "★ Watching" : "☆ Watch"}</button>
+          <button class="chip active" id="trackBtn">+ Track bet</button>
+        </div>
       </div>
       <div class="card">
         <div class="stat-tabs" id="statTabs">${Object.keys(p.lines).map(sk => `<button class="chip ${sk === k ? "active" : ""}" data-k="${sk}">${esc(statLabel(sk))} ${p.lines[sk]}</button>`).join("")}</div>
@@ -227,9 +231,9 @@
         <div class="kpi"><div class="k">Average</div><div class="v">${fmt(avg(logs, k))}</div><div class="s">${(avg(logs, k) - line >= 0 ? "+" : "") + fmt(avg(logs, k) - line)} vs line</div></div>
         <div class="kpi"><div class="k">Median</div><div class="v">${fmt(median(logs, k))}</div><div class="s">${state.range} sample</div></div>
         <div class="kpi"><div class="k">Streak</div><div class="v">${streak(p.logs, k, line, side)}</div><div class="s">straight ${side}s</div></div>
-        ${(() => { const bv = bestValue(p, k, side); return bv
-          ? `<div class="kpi"><div class="k">Best value</div><div class="v" style="color:${evColor(bv.ev)}">EV ${evTxt(bv.ev)}</div><div class="s">${side === "over" ? "O" : "U"} ${bv.q.l} ${odds(bv.price)} · ${esc(bv.q.b)}</div></div>`
-          : `<div class="kpi"><div class="k">${side} odds</div><div class="v">${price != null ? odds(price) : "—"}</div><div class="s">${price != null ? `${pct(implied(price))} implied` : "projected line, no market"}</div></div>`; })()}
+        ${(() => { const bb = window.PropModel.bestBet(p, k, state.sport), b = bb?.best; return b
+          ? `<div class="kpi"><div class="k">Best bet</div><div class="v" style="color:${evColor(b.ev)}">EV ${evTxt(b.ev)}</div><div class="s">${b.side === "over" ? "O" : "U"} ${b.line} ${odds(b.price)} · ${esc(b.book)}</div></div>`
+          : `<div class="kpi"><div class="k">Projection</div><div class="v">${bb ? bb.proj.mean : "—"}</div><div class="s">${price != null ? `${side} ${odds(price)} · ${pct(implied(price))} implied` : "no market price yet"}</div></div>`; })()}
         <div class="kpi"><div class="k">Opp vs ${esc(statLabel(k))}</div><div class="v" style="color:${rankColor}">${rank}<span style="font-size:13px">/${n}</span></div><div class="s">${rankTxt} matchup</div></div>
       </div>
       <div class="card">
@@ -239,6 +243,7 @@
         </div>
         ${logs.length ? chartSVG(logs, k, line, side) : `<div class="empty">No games in this split.</div>`}
       </div>
+      ${edgeCards(p, k, line, side)}
       ${shopCard(p, k, side, line)}
       <div class="card"><h2>Splits at ${side === "over" ? "O" : "U"} ${line}</h2><div class="splits">
         ${splits.map(([lab, lg]) => { const r = rate(lg, k, line, side); return `<div class="split"><div class="pl-sub">${lab} · ${lg.length} gp</div><b style="font-size:17px">${lg.length ? pct(r) : "—"}</b> <span class="pl-sub">avg ${fmt(avg(lg, k))}</span><div class="bar"><i style="width:${r * 100}%;background:${r >= 0.5 ? "var(--hit)" : "var(--miss)"}"></i></div></div>`; }).join("")}
@@ -256,11 +261,86 @@
       </div>`;
 
     $("#backBtn").onclick = () => document.querySelector(".layout").classList.remove("show-detail");
+    $("#watchBtn").onclick = () => { const on = window.PropBets.toggleWatch(window.PropBets.watchKey(state.sport, p.id, k)); $("#watchBtn").textContent = on ? "★ Watching" : "☆ Watch"; $("#watchBtn").setAttribute("aria-pressed", on);
+      if (on) window.PropBets.alerts(DATA); }; // record today's line/price as the baseline for alerts
+    $("#trackBtn").onclick = () => { const r = window.PropModel.bestBet(p, k, state.sport); const b = r?.best;
+      const sd = b ? b.side : side, ln = b ? b.line : line, pr = b ? b.price : (side === "over" ? p.odds?.[k]?.over : p.odds?.[k]?.under) ?? -110;
+      const prob = b ? b.prob : r ? (sd === "over" ? r.probs.over : r.probs.under) : null;
+      window.PropBets.openTrack({ p, sport: state.sport, stat: k, label: statLabel(k), side: sd, line: ln, price: pr, book: b?.book || "", prob }); };
+    d.querySelectorAll("[data-corr]").forEach(b => b.onclick = () => select(b.dataset.corr, b.dataset.k));
     d.querySelectorAll("#statTabs .chip").forEach(b => b.onclick = () => select(p.id, b.dataset.k));
     d.querySelectorAll("#rangeTabs .chip").forEach(b => b.onclick = () => { state.range = b.dataset.r; renderDetail(); });
     $("#lineDown").onclick = () => { if (base + state.lineAdj - 1 >= 0.5) { state.lineAdj -= 1; renderDetail(); } };
     $("#lineUp").onclick = () => { state.lineAdj += 1; renderDetail(); };
     const lb = $("#ladderBtn"); if (lb) lb.onclick = () => { state.fullLadder = !state.fullLadder; renderDetail(); };
+  }
+
+  /** Projection, injuries, matchup by position, minutes & rest, line movement/history, correlated props. */
+  function edgeCards(p, k, line, side) {
+    const M = window.PropModel, sp = sport(), lg = state.sport;
+    const r = M.bestBet(p, k, lg); if (!r) return "";
+    const pr = M.probabilities(p, k, line, r.proj);
+    const pctS = x => x == null ? "—" : Math.round(x * 100) + "%";
+    const multTxt = m => `${m >= 1 ? "+" : "−"}${Math.abs((m - 1) * 100).toFixed(1)}%`;
+    const statL = statLabel(k);
+    // projection
+    const proj = `<div class="card"><h2>Projection <span class="pl-sub">${esc(statL)}</span></h2>
+      <div class="proj-top"><div class="proj-num">${r.proj.mean}</div><div class="pl-sub">vs line ${line} · we estimate <b>${pctS(pr.over)}</b> over / <b>${pctS(pr.under)}</b> under · fair odds ${odds(M.toAmerican(pr.over))} / ${odds(M.toAmerican(pr.under))}${r.best ? ` · best bet: <b>${r.best.side} ${r.best.line} ${odds(r.best.price)}</b> at ${esc(r.best.book)} (EV <b style="color:${r.best.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${(r.best.ev * 100).toFixed(1)}%</b>)` : ""}</div></div>
+      <div class="factors">${r.proj.parts.map(x => `<div class="factor"><span>${esc(x.label)}</span><b class="${x.mult == null ? "" : x.mult >= 1 ? "up" : "down"}">${x.mult == null ? x.value : multTxt(x.mult)}</b></div>`).join("")}</div>
+      <div class="pl-sub">Probability = 75% this projection (${r.proj.dist === "poisson" ? "Poisson" : "normal"} distribution) + 25% the last-20 hit rate. Betting EV also blends in the market's vig-free price.</div></div>`;
+    // injuries
+    const ww = (p.withWithout || []);
+    const inj = ww.length || p.teammatesQuestionable?.length ? `<div class="card"><h2>Teammates out <span class="pl-sub">tonight's injury report</span></h2>
+      ${ww.length ? `<div class="table-wrap"><table class="lat-table"><thead><tr><th>Teammate</th><th>Status</th><th class="num">Games with / without</th><th class="num">${esc(statL)} with</th><th class="num">without</th><th class="num">Over ${line} without</th></tr></thead><tbody>
+        ${ww.map(t => { const wo = (p.logs || []).filter(l => (t.datesWithout || []).includes(l.date)); const hr2 = wo.length ? wo.filter(l => (l.stats[k] ?? 0) > line).length / wo.length : null;
+          const a = t.avgWith?.[k], b = t.avgWithout?.[k];
+          return `<tr><td><b>${esc(t.teammate)}</b> <span class="pl-sub">${esc(t.pos || "")}</span></td><td><span class="tag inj">${esc(t.status || "Out")}</span></td><td class="num">${t.gamesWith} / ${t.gamesWithout}</td><td class="num">${a ?? "—"}</td><td class="num" style="color:${b != null && a != null ? (b > a ? "var(--hit)" : b < a ? "var(--miss)" : "") : ""}">${b ?? "—"}</td><td class="num">${hr2 == null ? "—" : `${pctS(hr2)} <span class="pl-sub">(${wo.length})</span>`}</td></tr>`; }).join("")}
+      </tbody></table></div>` : ""}
+      ${p.teammatesQuestionable?.length ? `<div class="pl-sub" style="margin-top:6px">Questionable: ${p.teammatesQuestionable.map(q => `${esc(q.name)} (${esc(q.status)})`).join(", ")}</div>` : ""}</div>` : "";
+    // matchup by position + minutes + rest
+    const dv = p.dvp || {}, rk = dv.rank?.[k], f = dv.factor?.[k];
+    const mins = (p.logs || []).map(l => l.min).filter(m => m != null);
+    const mAvg = a => a.length ? (a.reduce((x, y) => x + y, 0) / a.length).toFixed(1) : "—";
+    const rs = M.restSplits(p.logs || [], k, line);
+    const sprd = p.game?.teamSpread;
+    const ctx = `<div class="card"><h2>Matchup, minutes &amp; rest</h2><div class="ctx-grid">
+      <div class="ctx"><div class="k">${esc(p.opp)} vs ${esc(dv.group || "position")}</div><div class="v" style="color:${rk ? (rk > (dv.of || 30) * 2 / 3 ? "var(--hit)" : rk <= (dv.of || 30) / 3 ? "var(--miss)" : "var(--amber)") : ""}">${rk ? `${rk}<span class="of">/${dv.of}</span>` : "—"}</div><div class="s">${f ? `${f >= 1 ? "allows" : "holds"} ${dv.group}s to ${Math.round(Math.abs(f - 1) * 100)}% ${f >= 1 ? "above" : "below"} their usual ${esc(statL.toLowerCase())}` : "not enough games yet"} · 1 = toughest</div></div>
+      ${mins.length ? `<div class="ctx"><div class="k">Minutes</div><div class="v">${mAvg(mins.slice(0, 5))}</div><div class="s">last 5 · ${mAvg(mins.slice(0, 20))} last 20 · ${mAvg(mins)} last ${mins.length}</div>${miniBars(mins.slice(0, 15).reverse())}</div>` : ""}
+      <div class="ctx"><div class="k">Rest</div><div class="v">${p.restDays == null ? "—" : p.restDays === 0 ? "Back-to-back" : p.restDays + " day" + (p.restDays === 1 ? "" : "s")}</div><div class="s">${rs.b2b.n ? `On back-to-backs: avg ${rs.b2b.avg.toFixed(1)}, over ${line} ${pctS(rs.b2b.over)} (${rs.b2b.n})` : "No back-to-backs in the sample"} · rested 2+ days: ${rs.rested.n ? `avg ${rs.rested.avg.toFixed(1)}, over ${pctS(rs.rested.over)} (${rs.rested.n})` : "—"}</div></div>
+      <div class="ctx"><div class="k">Game script</div><div class="v">${sprd == null ? (p.game?.details ? esc(p.game.details) : "—") : `${sprd > 0 ? "+" : ""}${sprd}`}</div><div class="s">${sprd == null ? "no spread posted yet" : Math.abs(sprd) >= 10 ? "Blowout risk: starters may sit late" : sprd < 0 ? `${esc(p.team)} favored` : `${esc(p.team)} underdog`}${p.game?.total ? ` · total ${p.game.total}` : ""}</div></div>
+    </div></div>`;
+    // line movement & history
+    const mv = p.lineMove?.[k] || {}, hist = p.lineHistory?.[k] || [];
+    const qs = (p.market?.[k] || []).filter(q => q.ol != null && !q.alt);
+    const moved = qs.filter(q => q.ol !== q.l || q.oo !== q.o);
+    const hAbove = hist.filter(h => h.line >= line), hHit = hAbove.filter(h => h.actual > h.line).length;
+    const lines = `<div class="card"><h2>Line movement &amp; history</h2>
+      <div class="pl-sub">Opened ${mv.openLine ?? "—"}${mv.openOver != null ? ` (${odds(mv.openOver)} / ${odds(mv.openUnder)})` : ""}${mv.openedAt ? ` · first seen ${new Date(mv.openedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : ""} → now ${line}${p.odds?.[k]?.over != null ? ` (${odds(p.odds[k].over)} / ${odds(p.odds[k].under)})` : ""}${mv.openLine != null && mv.openLine !== p.lines[k] ? ` · <b style="color:var(--accent)">moved ${p.lines[k] > mv.openLine ? "up" : "down"} ${Math.abs(p.lines[k] - mv.openLine)}</b>` : ""}</div>
+      ${moved.length ? `<div class="table-wrap"><table class="lat-table"><thead><tr><th>Book</th><th class="num">Opened</th><th class="num">Now</th></tr></thead><tbody>${moved.map(q => `<tr><td>${esc(q.b)}</td><td class="num">${q.ol} · ${odds(q.oo)} / ${odds(q.ou)}</td><td class="num">${q.l} · ${odds(q.o)} / ${odds(q.u)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+      ${hist.length ? `<div class="pl-sub" style="margin-top:8px">When his line was ${line} or higher, he went over <b>${hHit} of ${hAbove.length}</b>. Last ${hist.length} lines:</div>
+        <div class="hist-strip">${hist.map(h => `<span class="hchip ${h.actual > h.line ? "hit" : "miss"}" title="${esc(h.date)}: line ${h.line}, actual ${h.actual}">${h.line}<b>${h.actual}</b></span>`).join("")}</div>`
+        : `<div class="pl-sub" style="margin-top:8px">Line history builds up from today: each night's line is saved and checked against the box score.</div>`}</div>`;
+    // correlated props in the same game (teammates and opponents)
+    const mates = sp.players.filter(x => x.id !== p.id && (x.team === p.team || x.team === p.opp) && x.gameDate === p.gameDate);
+    const corr = [];
+    for (const x of mates) for (const s2 of Object.keys(x.lines || {})) {
+      const c = M.correlation(p.logs, k, line, x.logs, s2, x.lines[s2]);
+      if (c && c.n >= 8 && Math.abs(c.phi) >= 0.15) corr.push({ x, s2, c });
+    }
+    // same player, different stat (skip combos built from each other, e.g. PRA and points)
+    const COMBO = { pra: ["pts", "reb", "ast"], hrr: ["hits", "runs", "rbi"], pts: ["g", "ast"] };
+    const related = (a, b) => (COMBO[a] || []).includes(b) || (COMBO[b] || []).includes(a);
+    for (const s2 of Object.keys(p.lines)) if (s2 !== k && !related(k, s2)) { const c = M.correlation(p.logs, k, line, p.logs, s2, p.lines[s2]); if (c && c.n >= 8 && Math.abs(c.phi) >= 0.2) corr.push({ x: p, s2, c }); }
+    corr.sort((a, b) => Math.abs(b.c.phi) - Math.abs(a.c.phi));
+    const corrCard = corr.length ? `<div class="card"><h2>Correlated props <span class="pl-sub">same game · how often both overs hit together</span></h2>
+      <div class="table-wrap"><table class="lat-table"><thead><tr><th>With</th><th class="num">Both over</th><th class="num">If independent</th><th class="num">Correlation</th><th class="num">Games</th></tr></thead><tbody>
+      ${corr.slice(0, 8).map(({ x, s2, c }) => `<tr><td><button class="linklike" data-corr="${esc(x.id)}" data-k="${esc(s2)}">${x === p ? "Same player" : esc(x.name)} <span class="pl-sub">${esc(statLabel(s2))} over ${x.lines[s2]}${x.team !== p.team ? " · opponent" : ""}</span></button></td><td class="num">${pctS(c.both)}</td><td class="num">${pctS(c.independent)}</td><td class="num" style="color:${c.phi > 0 ? "var(--hit)" : "var(--miss)"}">${c.phi > 0 ? "+" : ""}${c.phi.toFixed(2)}</td><td class="num">${c.n}</td></tr>`).join("")}
+      </tbody></table></div><div class="pl-sub">Same-game parlays price legs as if they were independent. A strong positive correlation means the parlay hits more often than its price assumes; a negative one, less often.</div></div>` : "";
+    return proj + inj + ctx + lines + corrCard;
+  }
+  function miniBars(v) {
+    if (v.length < 3) return ""; const hi = Math.max(...v, 1);
+    return `<svg class="minibars" viewBox="0 0 ${v.length * 8} 28" preserveAspectRatio="none" aria-hidden="true">${v.map((x, i) => `<rect x="${i * 8 + 1}" y="${28 - x / hi * 26}" width="6" height="${x / hi * 26}" rx="1.5"/>`).join("")}</svg>`;
   }
 
   function shopCard(p, k, side, line) {
@@ -354,6 +434,8 @@
     $("#arbView").hidden = v !== "arb";
     $("#latView").hidden = v !== "lat";
     $("#cryptoView").hidden = v !== "crypto";
+    $("#edgeView").hidden = v !== "edge";
+    $("#betsView").hidden = v !== "bets";
     document.querySelector(".layout").hidden = v !== "props";
     document.querySelectorAll("#viewNav .view-btn").forEach(b => { const on = b.dataset.view === v; b.classList.toggle("active", on); b.setAttribute("aria-current", on ? "page" : "false"); });
     document.body.dataset.view = v;
@@ -361,18 +443,37 @@
     if (v === "arb") renderArbs();
     else if (v === "lat") window.PropLatency.render($("#latView"));
     else if (v === "crypto") window.PropCrypto.render($("#cryptoView"));
+    else if (v === "edge") window.PropEdge.render($("#edgeView"), DATA, api);
+    else if (v === "bets") window.PropBets.render($("#betsView"), DATA, api);
     else renderTabs();
     window.scrollTo(0, 0);
     try { if (location.hash.slice(1) !== (v === "props" ? "" : v)) history.replaceState(null, "", v === "props" ? location.pathname : "#" + v); } catch {}
   }
   document.querySelectorAll("#viewNav .view-btn").forEach(b => b.onclick = () => setView(b.dataset.view));
+  // shared helpers for the Edge Board and My Bets views
+  const api = {
+    avatar,
+    openProp(sp, pid, k) { setView("props"); state.sport = sp; state.stat = "all"; store.set("sport", sp); renderTabs(); select(pid, k); },
+  };
+  window.PropBets.onChange = () => { if (state.view === "bets") window.PropBets.render($("#betsView"), DATA, api); };
+  // "since your last visit" alerts for watched props
+  try {
+    window.PropBets.updateClose(DATA);
+    const al = window.PropBets.alerts(DATA);
+    if (al.length) {
+      const bar = $("#alertBar"); bar.hidden = false;
+      bar.innerHTML = `<div class="alert-head"><b>Since your last visit</b><button class="chip sm" id="alertClose" aria-label="Dismiss">✕</button></div>${al.slice(0, 6).map(a => `<button class="alert-item" data-sport="${esc(a.sport)}" data-pid="${esc(a.pid)}" data-k="${esc(a.stat)}">${esc(a.text)}</button>`).join("")}`;
+      bar.querySelectorAll(".alert-item").forEach(b => b.onclick = () => api.openProp(b.dataset.sport, b.dataset.pid, b.dataset.k));
+      $("#alertClose").onclick = () => { bar.hidden = true; };
+    }
+  } catch {}
   document.body.dataset.view = "props";
   window.PropLatency.wire($("#latView"));
   ["#arbStake", "#arbMin", "#arbSport"].forEach(id => $(id).addEventListener("input", renderArbs));
   $("#sportTabs").addEventListener("click", () => { if (state.view && state.view !== "props") setView("props"); }, true);
   // open a section from the link (#arb, #lat, #crypto)
   const startView = location.hash.slice(1);
-  if (["arb", "lat", "crypto"].includes(startView)) setTimeout(() => setView(startView), 0);
+  if (["arb", "lat", "crypto", "edge", "bets"].includes(startView)) setTimeout(() => setView(startView), 0);
 
   const foot = document.querySelector(".foot");
   if (LIVE) {
