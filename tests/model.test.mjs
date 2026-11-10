@@ -108,3 +108,12 @@ test("game model: stronger home side is favored, probabilities consistent, bets 
   const h = M.gameModel({ home: "TOR", away: "COL", form: { TOR: form(3, 3), COL: form(3.4, 2.8) } }, "nhl");
   assert.ok(h.total > 5 && h.total < 7.5 && h.pOver(6.5) > 0.2 && h.pOver(6.5) < 0.7);
 });
+
+test("game model uses this season's games; last season only when this one has barely started", () => {
+  const cur = Array.from({ length: 6 }, (_, i) => ({ date: `2026-11-${String(9 - i).padStart(2, "0")}`, pf: 120, pa: 100, season: "cur" }));
+  const prev = Array.from({ length: 10 }, (_, i) => ({ date: `2026-04-${String(10 - i).padStart(2, "0")}`, pf: 90, pa: 120, season: "prev" }));
+  assert.equal(M.seasonForm([...cur, ...prev]).length, 6);
+  assert.equal(M.seasonForm([...cur.slice(0, 3), ...prev]).length, 13);                  // fewer than 5: keep last season too
+  const unflagged = [...cur, ...prev].map(({ season, ...x }) => x);                        // older data: split at the off-season gap
+  assert.equal(M.seasonForm(unflagged).length, 6);
+});

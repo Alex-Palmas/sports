@@ -16,19 +16,21 @@
 
   /** Recent-form summary for one side against tonight's numbers. */
   function trends(g, team, lg) {
-    const f = (g.form?.[team] || []).slice(0, 10); if (!f.length) return null;
+    const f = window.PropModel.seasonForm(g.form?.[team]).slice(0, 10); if (!f.length) return null;
     const pf = f.reduce((a, x) => a + x.pf, 0) / f.length, pa = f.reduce((a, x) => a + x.pa, 0) / f.length;
     const w = f.filter(x => x.pf > x.pa).length, l = f.filter(x => x.pf < x.pa).length;
     const sp = g.dk?.spread?.home != null ? (team === g.home ? g.dk.spread.home : -g.dk.spread.home) : null;   // this team's line tonight
     const cover = sp == null ? null : f.filter(x => x.pf - x.pa + sp > 0).length;
     const tot = g.dk?.total?.line, over = tot == null ? null : f.filter(x => x.pf + x.pa > tot).length;
     const h2h = (g.form?.[team] || []).filter(x => x.opp === (team === g.home ? g.away : g.home)).slice(0, 5);
-    return { n: f.length, pf, pa, w, l, sp, cover, tot, over, h2h };
+    const md = d => new Date(d + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric" });
+    return { n: f.length, pf, pa, w, l, sp, cover, tot, over, h2h, span: `${md(f[f.length - 1].date)} – ${md(f[0].date)}`, prev: f.some(x => x.season === "prev") };
   }
 
   /** One game card. compact = the summary shown above the props list when a game is picked. */
   function card(g, lg, api, opts = {}) {
     const M = window.PropModel, { model: m, bets } = M.gameBets(g, lg, opts.lgAvg);
+    const tA = trends(g, g.away, lg), tH = trends(g, g.home, lg);
     const dk = g.dk || {}, K = g.kalshi || {}, logo = api.teamLogo;
     const t = new Date(g.date), live = t.getTime() <= Date.now() && Date.now() - t.getTime() < 4 * 3600e3;
     const when = live ? `<span class="gs-live">LIVE</span>` : esc(`${opts.showDay ? dayLabel(dayKey(g.date)) + " · " : ""}${t.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
@@ -56,14 +58,15 @@
         <td class="gl-k">${ktt ? `<a href="${esc(ktt.href)}" target="_blank" rel="noopener" data-kalshi-link>${side === "o" ? "O" : "U"} ${odds(side === "o" ? ktt.o : ktt.u)}</a>` : "—"}</td>`}</tr>`; };
     const move = (now, open, fmt) => open != null && now != null && open !== now ? `<span class="gl-move">opened ${fmt(open)}</span>` : "";
     const top = bets.filter(b => b.ev > 0.005).slice(0, opts.compact ? 2 : 4);
-    const tA = trends(g, g.away, lg), tH = trends(g, g.home, lg);
-    const trendLine = (tm, tr) => tr ? `<div class="gl-trend"><b>${esc(tm)}</b> last ${tr.n}: ${tr.w}-${tr.l} · ${r1(tr.pf)} scored / ${r1(tr.pa)} allowed${tr.cover != null ? ` · covered ${sgn(tr.sp)} in ${tr.cover}/${tr.n}` : ""}${tr.over != null ? ` · over ${tr.tot} in ${tr.over}/${tr.n}` : ""}${tr.h2h.length ? ` · vs ${esc(tm === g.home ? g.away : g.home)}: ${tr.h2h.map(x => `${x.pf}-${x.pa}`).join(", ")}` : ""}</div>` : "";
+
+    const trendLine = (tm, tr) => tr ? `<div class="gl-trend"><b>${esc(tm)}</b> last ${tr.n} <span class="pl-sub">(${esc(tr.span)}${tr.prev ? ", incl. last season" : ""})</span>: ${tr.w}-${tr.l} · ${r1(tr.pf)} scored / ${r1(tr.pa)} allowed${tr.cover != null ? ` · covered ${sgn(tr.sp)} in ${tr.cover}/${tr.n}` : ""}${tr.over != null ? ` · over ${tr.tot} in ${tr.over}/${tr.n}` : ""}${tr.h2h.length ? ` · vs ${esc(tm === g.home ? g.away : g.home)}: ${tr.h2h.map(x => `${x.pf}-${x.pa}`).join(", ")}` : ""}</div>` : "";
     return `<div class="card game-card${opts.compact ? " compact" : ""}" id="game-${esc(g.id)}" data-gkey="${esc(gk(g))}">
       <div class="gc-head"><div class="gc-matchup">${logo(g.away, 26)}<b>${esc(g.away)}</b><span class="pl-sub">@</span>${logo(g.home, 26)}<b>${esc(g.home)}</b></div><span class="pl-sub">${when}</span></div>
       <div class="table-wrap"><table class="gl-table"><thead><tr><th></th><th>Moneyline</th><th>Spread</th><th>Total</th>${opts.compact ? "" : `<th class="gl-k">Kalshi ML</th><th class="gl-k">Kalshi spread</th><th class="gl-k">Kalshi total</th>`}</tr></thead>
         <tbody>${row(g.away, "o")}${row(g.home, "u")}</tbody></table></div>
+      ${!dk.ml && !dk.spread && !dk.total ? `<div class="gl-nolines">DraftKings hasn't posted lines for this game yet (usually the day before or the morning of). ${Object.keys(K.ml || {}).length ? "Kalshi's prices are live." : ""}</div>` : ""}
       <div class="pl-sub gl-src">${esc(dk.book || "DraftKings")} via ESPN${move(dk.ml?.home, dk.ml?.openHome, v => `${g.home} ${odds(v)}`)}${move(sp?.home, sp?.openHome, v => `${g.home} ${sgn(v)}`)}${move(tt?.line, tt?.openLine, v => `total ${v}`)} · small text: our chance · EV</div>
-      ${m ? `<div class="gl-model"><span>Projection</span><b>${esc(g.away)} ${r1(m.away)} – ${esc(g.home)} ${r1(m.home)}</b><span class="pl-sub">fair spread ${esc(m.margin >= 0 ? g.home : g.away)} −${r1(Math.abs(m.margin))} · fair total ${r1(m.total)} · ${esc(g.home)} wins ${pct(m.pWin(g.home))}</span></div>` : `<div class="pl-sub">Not enough recent games for a projection.</div>`}
+      ${m ? `<div class="gl-model"><span>Projection</span><b>${esc(g.away)} ${r1(m.away)} – ${esc(g.home)} ${r1(m.home)}</b><span class="pl-sub">fair spread ${esc(m.margin >= 0 ? g.home : g.away)} −${r1(Math.abs(m.margin))} · fair total ${r1(m.total)} · ${esc(g.home)} wins ${pct(m.pWin(g.home))}</span><span class="pl-sub gl-basis">from this season: ${esc(g.away)} ${tA?.n ?? "—"} games, ${esc(g.home)} ${tH?.n ?? "—"} games${tA?.prev || tH?.prev ? " (early season: includes last season)" : ""}</span></div>` : `<div class="pl-sub">Not enough recent games for a projection.</div>`}
       ${top.length ? `<div class="gl-best"><span class="pl-sub">Best value</span>${top.map(b => `<span class="gl-bet">${esc(b.label)} <b>${odds(b.price)}</b> ${esc(b.book)} · <b style="color:var(--hit)">EV ${evTxt(b.ev)}</b>${b.href ? ` <a href="${esc(b.href)}" target="_blank" rel="noopener" data-kalshi-link class="kalshi-link">Open ↗</a>` : ""}</span>`).join("")}</div>` : ""}
       ${opts.compact ? `<button class="chip sm gl-more" data-full="${esc(g.id)}">All lines &amp; trends →</button>` : `<details class="gl-trends"${opts.open ? " open" : ""}><summary>Recent scoring &amp; trends</summary>${trendLine(g.away, tA)}${trendLine(g.home, tH)}
         ${K.spread?.length || K.total?.length ? `<div class="gl-ladders">${K.spread?.length ? `<div><span class="pl-sub">Kalshi spread ladder</span>${K.spread.map(q => `<span class="gl-lad">${esc(q.team)} by ${q.l}+ <b>${odds(q.o)}</b></span>`).join("")}</div>` : ""}${K.total?.length ? `<div><span class="pl-sub">Kalshi total ladder</span>${K.total.map(q => `<span class="gl-lad">O ${q.l} <b>${odds(q.o)}</b></span>`).join("")}</div>` : ""}</div>` : ""}</details>`}

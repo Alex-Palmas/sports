@@ -239,8 +239,9 @@ async function teamForm(cfg, teamId) {
     return me && op && Number.isFinite(pf) && Number.isFinite(pa) ? { date: e.date.slice(0, 10), opp: op.team.abbreviation, home: me.homeAway === "home", pf, pa } : null;
   }).filter(Boolean);
   const cur = await get(`${SITE}/${cfg.path}/teams/${teamId}/schedule`);
-  let out = rows(cur);
-  if (out.length < 10 && cur?.requestedSeason?.year) out = rows(await get(`${SITE}/${cfg.path}/teams/${teamId}/schedule?season=${cur.requestedSeason.year - 1}`)).concat(out);
+  let out = rows(cur).map(x => ({ ...x, season: "cur" }));
+  // only reach into last season when this one has barely started
+  if (out.length < 5 && cur?.requestedSeason?.year) out = rows(await get(`${SITE}/${cfg.path}/teams/${teamId}/schedule?season=${cur.requestedSeason.year - 1}`)).map(x => ({ ...x, season: "prev" })).concat(out);
   return out.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20);
 }
 
