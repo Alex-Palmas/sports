@@ -36,7 +36,7 @@
   const $ = s => document.querySelector(s);
   const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); Object.assign(e, attrs); if (html) e.innerHTML = html; return e; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const store = { get(k, d) { try { const v = localStorage.getItem("proplab:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem("proplab:" + k, JSON.stringify(v)); } catch {} } };
+  const store = { get(k, d) { try { const v = localStorage.getItem((window.PROPLAB_NS || "proplab:") + k); return v == null ? d : JSON.parse(v); } catch { return d; } }, set(k, v) { try { localStorage.setItem((window.PROPLAB_NS || "proplab:") + k, JSON.stringify(v)); } catch {} } };
 
   const state = {
     sport: store.get("sport", "nba"),

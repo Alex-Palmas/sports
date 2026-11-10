@@ -7,7 +7,7 @@
   const STRATS = { settled: "Settled props: buy the line a play just settled, hold to $1", rung: "Player events: after any stat change, buy the player's next line up, sell after the hold", gameline: "Game line: after a score, buy the scoring team, sell after the hold" };
   const NAMES = { settled: "Settled props", rung: "Player events", gameline: "Game line" };
   let opts = { strategies: ["settled", "rung", "gameline"], league: "all", orderDelay: 0.5, maxPrice: 90, contracts: 10, hold: 30, clutchOnly: false, scope: "session" };
-  try { Object.assign(opts, JSON.parse(localStorage.getItem("proplab:sim") || "{}")); } catch {}
+  try { Object.assign(opts, JSON.parse(localStorage.getItem((window.PROPLAB_NS || "proplab:") + "sim") || "{}")); } catch {}
   const all = { loaded: false, recs: [] }; let showTrades = 25;
 
   async function getJSON(u) { try { const r = await fetch(u, { cache: "no-cache" }); return r.ok ? r.json() : null; } catch { return null; } }
@@ -99,8 +99,8 @@
       </tbody></table></div>
       ${res.trades.length > showTrades ? `<button class="chip" id="simMore" style="margin-top:8px">Show ${Math.min(100, res.trades.length - showTrades)} more</button>` : ""}`}
     </details>`;
-    const det = box.querySelector(".sim-replay"); if (det) det.ontoggle = () => { opts.replayOpen = det.open; try { localStorage.setItem("proplab:sim", JSON.stringify(opts)); } catch {} };
-    const save = () => { try { localStorage.setItem("proplab:sim", JSON.stringify(opts)); } catch {} render(box, current, sessions); };
+    const det = box.querySelector(".sim-replay"); if (det) det.ontoggle = () => { opts.replayOpen = det.open; try { localStorage.setItem((window.PROPLAB_NS || "proplab:") + "sim", JSON.stringify(opts)); } catch {} };
+    const save = () => { try { localStorage.setItem((window.PROPLAB_NS || "proplab:") + "sim", JSON.stringify(opts)); } catch {} render(box, current, sessions); };
     box.querySelectorAll("[data-strat]").forEach(c => c.onchange = () => { opts.strategies = [...box.querySelectorAll("[data-strat]:checked")].map(x => x.dataset.strat); save(); });
     const bind = (id, key, f = v => v) => { const n = box.querySelector(id); if (n) n.onchange = () => { opts[key] = f(n.type === "checkbox" ? n.checked : n.value); save(); }; };
     bind("#simScope", "scope"); bind("#simLeague", "league"); bind("#simOrder", "orderDelay"); bind("#simMax", "maxPrice");

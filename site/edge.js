@@ -22,11 +22,11 @@
   let gradeCounts = {}, statCounts = {};
   /** Confidence badge: grade + score, with the reasons in the tooltip. */
   const confBadge = c => c ? `<span class="conf conf-${c.grade.toLowerCase()}" title="${esc(c.why.length ? c.why.map(w => `−${w.pts} ${w.txt}`).join("\n") : "Nothing lowers confidence")}"><i></i>${c.grade} ${c.score}</span>` : "";
-  try { Object.assign(opts, JSON.parse(localStorage.getItem("proplab:edge") || "{}")); } catch {}
+  try { Object.assign(opts, JSON.parse(localStorage.getItem((window.PROPLAB_NS || "proplab:") + "edge") || "{}")); } catch {}
   // older saved setting (a minimum grade) → the grade chips
   if (opts.minConf) { opts.grades = { high: ["High"], medium: ["High", "Medium"] }[opts.minConf] || opts.grades; delete opts.minConf; }
   if (!Array.isArray(opts.grades) || !opts.grades.length) opts.grades = ["High", "Medium", "Low"];
-  const save = () => { try { localStorage.setItem("proplab:edge", JSON.stringify({ ...opts, show: 60 })); } catch {} };
+  const save = () => { try { localStorage.setItem((window.PROPLAB_NS || "proplab:") + "edge", JSON.stringify({ ...opts, show: 60 })); } catch {} };
 
   /** Chips explaining what drives a projection. */
   function chips(p, proj, stat) {

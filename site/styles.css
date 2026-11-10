@@ -693,3 +693,21 @@ body:not([data-view="props"]) #statStrip{display:none}
 .gl-more{align-self:flex-start}
 body:not([data-view="props"]) #statStrip{display:none}
 @media (max-width:760px){.game-card{padding:12px}.gc-matchup{font-size:17px}.gl-table th,.gl-table td{padding:6px 4px}.gl-cell b{font-size:13px}}
+/* sign-in */
+html.auth-locked body>*:not(.login-screen){display:none!important}
+.login-screen{min-height:100vh;min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px 16px;background:radial-gradient(1200px 600px at 50% -10%,var(--accent-soft),transparent 60%),var(--bg)}
+.login-card{width:min(380px,100%);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:28px 24px;display:flex;flex-direction:column;gap:12px;box-shadow:0 30px 80px -30px rgba(0,0,0,.45)}
+.login-brand{display:flex;align-items:center;gap:10px;font-family:var(--font-display);font-size:22px}
+.login-brand b{color:var(--accent)}
+.login-brand .brand-mark{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:10px;background:var(--accent);color:var(--on-accent,#fff)}
+.login-card h1{margin:8px 0 0;font-size:26px}
+.login-card p{margin:0}
+.login-card label:not(.check){display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted)}
+.login-card input:not([type=checkbox]){background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px;font:inherit;font-size:16px;color:var(--text)}
+.login-card input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.login-card .check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.login-msg{min-height:18px;font-size:13px;color:var(--miss)}
+.login-btn{background:var(--accent);color:var(--on-accent,#fff);border:0;border-radius:12px;padding:13px;font:inherit;font-weight:700;font-size:16px;cursor:pointer}
+.login-btn:disabled{opacity:.6;cursor:wait}
+.login-foot{text-align:center;font-size:12px}
+.set-acct{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--panel2);border-radius:10px;padding:8px 10px;font-size:13px}
