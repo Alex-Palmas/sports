@@ -51,3 +51,48 @@ test("helpers", () => {
   assert.equal(median([3, 1, 2]), 2); assert.equal(median([1, 2, 3, 4]), 2.5); assert.equal(median([null]), null);
   assert.equal(stateAt([{ t: 1, bid: 1 }, { t: 5, bid: 2 }], 4).bid, 1);
 });
+
+import { trajectory, medianCurve, midOf, OFFSETS } from "../scripts/kalshi-latency.mjs";
+
+test("trajectory of a prop the play settled: start, 50%, 90%, steps, volume, left at feed time", () => {
+  const P = 2_000_000;
+  const tl = [
+    { t: P - 60e3, bid: 0.40, ask: 0.44, vol: 1000 },   // pre mid 0.42
+    { t: P + 3e3, bid: 0.55, ask: 0.61, vol: 1050 },     // first move
+    { t: P + 6e3, bid: 0.70, ask: 0.76, vol: 1200 },     // 0.73 → 53% of the way to 1
+    { t: P + 20e3, bid: 0.94, ask: 0.99, vol: 1500 },    // 0.965 → 94%
+  ];
+  const t = trajectory(tl, P, { final: 1, seenT: P + 5e3 });
+  assert.equal(t.pre, 0.42); assert.equal(t.end, 1); assert.equal(t.move, 0.58);
+  assert.equal(t.tStart, 3); assert.equal(t.t50, 6); assert.equal(t.t90, 20); assert.equal(t.steps, 3);
+  assert.equal(t.traded, 500);
+  // at feed time (+5s) mid was 0.58 → 0.16/0.58 done → 72% left
+  assert.equal(t.leftAtSeen, +(1 - (0.58 - 0.42) / 0.58).toFixed(3));
+  assert.equal(t.path[OFFSETS.indexOf(0)], 0.42); assert.equal(t.path[OFFSETS.indexOf(10)], 0.73);
+  assert.equal(t.done[OFFSETS.indexOf(30)], +((0.965 - 0.42) / 0.58).toFixed(3));
+});
+
+test("game-line trajectory uses the price 120s later as the end; small moves are flat", () => {
+  const P = 3_000_000;
+  const tl = [{ t: P - 5e3, bid: 0.50, ask: 0.52 }, { t: P + 4e3, bid: 0.54, ask: 0.56 }, { t: P + 50e3, bid: 0.53, ask: 0.55 }];
+  const t = trajectory(tl, P);
+  assert.equal(t.pre, 0.51); assert.equal(t.end, 0.54); assert.equal(t.move, 0.03);
+  assert.equal(t.tStart, 4); assert.equal(t.t50, 4); assert.equal(t.t90, 4);   // overshoot then settles
+  assert.equal(trajectory([{ t: P - 5e3, bid: 0.5, ask: 0.52 }, { t: P + 4e3, bid: 0.505, ask: 0.52 }], P).flat, true);
+  assert.equal(trajectory([], P), null);
+});
+
+test("closed market counts as probability 1; median curve", () => {
+  assert.equal(midOf({ closed: true, bid: 1, ask: 1 }), 1);
+  assert.equal(midOf({ bid: 0.4, ask: null }), 0.4);
+  const c = medianCurve([{ done: OFFSETS.map(() => 0.2) }, { done: OFFSETS.map(() => 0.6) }, { done: OFFSETS.map(() => 1) }]);
+  assert.equal(c.length, OFFSETS.length); assert.equal(c[0], 0.6);
+});
+
+import { windowFor } from "../scripts/kalshi-latency.mjs";
+test("game-line window stops before the next scoring play", () => {
+  assert.equal(windowFor(0, null), 120); assert.equal(windowFor(0, 25e3), 24); assert.equal(windowFor(0, 1e3), 3); assert.equal(windowFor(0, 500e3), 120);
+  const P = 4_000_000;
+  const t = trajectory([{ t: P - 5e3, bid: 0.5, ask: 0.52 }, { t: P + 3e3, bid: 0.55, ask: 0.57 }, { t: P + 40e3, bid: 0.30, ask: 0.32 }], P, { window: 20 });
+  assert.equal(t.end, 0.56); assert.equal(t.path[OFFSETS.indexOf(30)], null);
+});

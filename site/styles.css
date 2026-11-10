@@ -155,3 +155,14 @@ table.shop td.top{font-weight:800;color:var(--hit)}
 .tag.won{background:var(--hit);border-color:var(--hit);color:#052e16}
 .tag.lost{background:var(--miss);border-color:var(--miss);color:#fff}
 .topbar{flex-wrap:wrap}
+.lat-lede{margin:0 0 8px;max-width:720px}
+.lat-groups{display:grid;grid-template-columns:1fr;gap:14px}
+.lat-groups h3{margin:0 0 8px;font-size:14px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.lat-groups .kpis{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.lat-chart.curve{min-width:520px}
+.lat-chart .feedline,.spark .feedline{stroke:var(--amber);stroke-width:1.5;stroke-dasharray:4 3}
+.lat-chart .feedlab{fill:var(--amber);font-weight:700}
+.spark{display:block}
+.spark .zero{stroke:var(--muted);stroke-dasharray:2 2;opacity:.7}
+.lat-legend .lg-feedline{background:none;border-left:2px dashed var(--amber);border-radius:0;width:0;height:12px}
+.lat-table td{vertical-align:middle}

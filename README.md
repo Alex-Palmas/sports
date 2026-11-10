@@ -37,7 +37,13 @@ Does a free live feed see NBA plays before Kalshi reprices? `scripts/kalshi-late
 - **when Kalshi caught up** (YES bid reached 90¢, or Kalshi closed the market),
 - **the stale price** Kalshi still showed when the feed delivered the play, and the profit per contract after fees.
 
-It also records how fast Kalshi's game-winner market moves after each scoring play. `.github/workflows/kalshi-latency.yml` runs it every evening at about 6:50pm ET (and late morning on weekends) and commits the results to `site/latency/`, and the app's **Kalshi Latency Study** tab shows them. It only reads data and never places orders.
+It also follows the **whole price path** for up to two minutes after each play, to show how long repricing takes once it starts:
+- how far the implied probability moved,
+- when the move started, and when it was 50% and 90% done,
+- how many separate price steps it took, and how many contracts traded meanwhile (a steady drift as people trade, or one jump by market makers),
+- how much of the move was still left when the feed delivered the play.
+
+The same path is measured on Kalshi's game-winner market after every scoring play. Each window ends at the next score, and results are split by situation (clutch vs. the rest, 1/2/3 points). `.github/workflows/kalshi-latency.yml` runs it every evening at about 6:50pm ET (and late morning on weekends) and commits the results to `site/latency/`, and the app's **Kalshi Latency Study** tab shows them. It only reads data and never places orders.
 
 Feeds: `FEED=espn` (default) works from GitHub's servers. `FEED=nba` uses the NBA's official CDN, which is usually faster but blocks cloud servers, so run it from a home connection:
 ```sh

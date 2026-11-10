@@ -13,7 +13,13 @@
  *   stale ask   – what Kalshi was still asking for YES when our feed delivered the play,
  *                 and the profit per contract after fees if you had bought it then
  *
- * plus, for every scoring play, how long Kalshi's game-winner market took to move.
+ * and the whole price path after the play (the "trajectory"): the implied probability at fixed
+ * offsets (−10s … +120s), how far it moved, when the move started, when it was 50% and 90%
+ * done, how many separate price steps it took and how many contracts traded meanwhile, and
+ * how much of the move was still left when our feed delivered the play.
+ *
+ * The same trajectory is measured on Kalshi's game-winner market after every scoring play,
+ * tagged with the game situation (quarter, clock, margin, 1/2/3 points).
  * Results go to site/latency/<date>.json and site/latency/index.json for the app's
  * "Kalshi Latency Study" tab.
  *
@@ -128,10 +134,52 @@ export function measureScoreReaction(playT, timelines) {
   }
   return first == null ? null : (first - playT) / 1000;
 }
+/** Implied probability of a price point: mid of bid/ask (or whichever side exists). */
+export const midOf = p => p == null ? null : p.closed ? 1 : p.bid != null && p.ask != null ? (p.bid + p.ask) / 2 : (p.bid ?? p.ask ?? null);
+export const OFFSETS = [-10, -5, 0, 1, 2, 3, 5, 7, 10, 15, 20, 30, 45, 60, 90, 120]; // seconds after the play
+/**
+ * The price path after a play.
+ *   final: the value the market must end at (1 for a prop the play settled), or null to use
+ *          the mid WINDOW seconds later (game lines, which keep moving with the game).
+ * Returns times in seconds after the play; `path` is the mid at each OFFSET (null if unknown);
+ * `done` is the share of the total move completed at each OFFSET.
+ */
+export function trajectory(timeline, playT, { final = null, window = 120, seenT = null } = {}) {
+  const pre = midOf(stateAt(timeline, playT - 1));
+  if (pre == null) return null;
+  const at = t => midOf(stateAt(timeline, t));
+  const end = final ?? at(playT + window * 1e3);
+  const move = end - pre;
+  const path = OFFSETS.map(o => { if (o > window) return null; const v = at(playT + o * 1e3); return v == null ? null : +v.toFixed(4); });
+  const out = { pre: +pre.toFixed(4), end: +end.toFixed(4), move: +move.toFixed(4), path };
+  const inWin = timeline.filter(p => p.t >= playT - 2e3 && p.t <= playT + window * 1e3);
+  const v0 = stateAt(timeline, playT - 1)?.vol, v1 = stateAt(timeline, playT + window * 1e3)?.vol;
+  out.traded = v0 != null && v1 != null ? Math.max(0, Math.round(v1 - v0)) : null;
+  if (Math.abs(move) < 0.01) return { ...out, flat: true };
+  let tStart = null, t50 = null, t90 = null, steps = 0, last = pre;
+  for (const p of inWin) {
+    const m = midOf(p); if (m == null || m === last) continue;
+    steps++; last = m;
+    const dt = (p.t - playT) / 1000, frac = (m - pre) / move;
+    if (tStart == null) tStart = dt;
+    if (t50 == null && frac >= 0.5) t50 = dt;
+    if (t90 == null && frac >= 0.9) t90 = dt;
+  }
+  out.tStart = tStart; out.t50 = t50; out.t90 = t90; out.steps = steps;
+  out.done = path.map(v => v == null ? null : +Math.max(-0.5, Math.min(1.5, (v - pre) / move)).toFixed(3));
+  if (seenT != null) { const m = at(seenT); out.leftAtSeen = m == null ? null : +Math.max(0, Math.min(1, 1 - (m - pre) / move)).toFixed(3); }
+  return out;
+}
+/** Seconds until the next scoring play (1s before it), between 3 and 120. */
+export const windowFor = (playT, nextT) => nextT == null ? 120 : Math.max(3, Math.min(120, Math.floor((nextT - playT) / 1000) - 1));
+/** Median share-of-move-done curve across many trajectories. */
+export function medianCurve(trajs) {
+  return OFFSETS.map((o, i) => median(trajs.map(t => t?.done?.[i])));
+}
 export function median(a) { const s = a.filter(x => x != null && Number.isFinite(x)).sort((x, y) => x - y); if (!s.length) return null; const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; }
 
 // ---------------------------------------------------------------- recorder
-class Recorder {
+export class Recorder {
   constructor() {
     this.games = new Map();       // espnId → game
     this.timelines = new Map();   // kalshi ticker → [{t, bid, ask, askSize}]
@@ -152,7 +200,7 @@ class Recorder {
         const state = e.status?.type?.state;
         const g = this.games.get(e.id) || { id: e.id, name: e.shortName, start: e.date, home: home.abbreviation, away: away.abbreviation,
           suffix: eventSuffix(e.date, away.abbreviation, home.abbreviation), seen: new Set(), totals: {}, names: {}, nbaId: null };
-        g.state = state; this.games.set(e.id, g);
+        g.state = state; g.teamById = { [home.id]: home.abbreviation, [away.id]: away.abbreviation }; this.games.set(e.id, g);
       }
     }
     if (FEED === "nba") {
@@ -184,12 +232,13 @@ class Recorder {
           });
           const bid = m.yes_bid_dollars != null ? +m.yes_bid_dollars : null, ask = m.yes_ask_dollars != null ? +m.yes_ask_dollars : null;
           const tl = this.timelines.get(m.ticker) || []; const last = tl[tl.length - 1];
-          if (!last || last.bid !== bid || last.ask !== ask) {
+          const vol = m.volume_fp != null ? +m.volume_fp : null;
+          if (!last || last.bid !== bid || last.ask !== ask || last.vol !== vol) {
             // The change happened after our previous poll and before this one. Kalshi's own
             // updated_time narrows it down, but only trust it inside that window.
             const kt = m.updated_time ? Date.parse(m.updated_time) : NaN;
             const t = last && Number.isFinite(kt) && kt > prevPoll && kt <= now ? kt : now;
-            tl.push({ t, polled: now, bid, ask, askSize: m.yes_ask_size_fp != null ? +m.yes_ask_size_fp : null });
+            tl.push({ t, polled: now, bid, ask, vol, askSize: m.yes_ask_size_fp != null ? +m.yes_ask_size_fp : null });
             this.timelines.set(m.ticker, tl);
           }
         }
@@ -200,7 +249,7 @@ class Recorder {
       if (complete) for (const [ticker, m] of this.markets) {
         if (m.series !== s || !suffixes.has(m.suffix) || seenTickers.has(ticker)) continue;
         const tl = this.timelines.get(ticker) || []; const last = tl[tl.length - 1];
-        if (last && !last.closed) tl.push({ t: now, polled: now, bid: 1, ask: 1, closed: true });
+        if (last && !last.closed) tl.push({ t: now, polled: now, bid: 1, ask: 1, vol: last.vol, closed: true });
       }
     }
     this.lastKalshiPoll = now;
@@ -215,7 +264,11 @@ class Recorder {
       for (const a of pbp?.game?.actions || []) {
         const key = "n" + a.actionNumber; if (g.seen.has(key)) continue; g.seen.add(key);
         if (!g.primed) continue; // ignore the backlog present when we start
-        const playT = Date.parse(a.timeActual); this.onPlay(g, playT, now, nbaIncrements(a), a.shotResult === "Made");
+        const playT = Date.parse(a.timeActual);
+        const clk = /PT(\d+)M([\d.]+)S/.exec(a.clock || "");
+        this.onPlay(g, playT, now, nbaIncrements(a), a.shotResult === "Made", {
+          team: a.teamTricode, points: a.actionType === "freethrow" ? 1 : a.actionType === "3pt" ? 3 : 2, period: a.period,
+          secsLeft: clk ? +clk[1] * 60 + +clk[2] : null, home: +a.scoreHome, away: +a.scoreAway });
       }
     } else {
       const s = await getJSON(`${ESPN}/summary?event=${g.id}`);
@@ -224,7 +277,11 @@ class Recorder {
       for (const p of s.plays || []) {
         if (g.seen.has(p.id)) continue; g.seen.add(p.id);
         if (!g.primed) { for (const i of espnIncrements(p)) this.add(g, i); continue; } // backlog: just build totals
-        const playT = Date.parse(p.wallclock); this.onPlay(g, playT, now, espnIncrements(p), !!p.scoringPlay);
+        const playT = Date.parse(p.wallclock);
+        const [mm, ss] = String(p.clock?.displayValue || "").split(":").map(Number);
+        this.onPlay(g, playT, now, espnIncrements(p), !!p.scoringPlay, {
+          team: g.teamById?.[p.team?.id], points: p.scoreValue, period: p.period?.number,
+          secsLeft: Number.isFinite(mm) ? mm * 60 + (ss || 0) : null, home: p.homeScore, away: p.awayScore });
       }
     }
     if (!g.primed) {
@@ -242,10 +299,10 @@ class Recorder {
 
   add(g, i) { const t = (g.totals[i.id] ||= { pts: 0, reb: 0, ast: 0, fg3: 0 }); const before = t[i.stat]; t[i.stat] += i.n; return [before, t[i.stat]]; }
 
-  onPlay(g, playT, seenT, incs, scoring) {
+  onPlay(g, playT, seenT, incs, scoring, ctx = {}) {
     if (!Number.isFinite(playT)) return;
     this.feedDelays.push((seenT - playT) / 1000);
-    if (scoring) this.scoring.push({ suffix: g.suffix, playT, seenT });
+    if (scoring && ctx.team) this.scoring.push({ suffix: g.suffix, game: g.name, playT, seenT, ...ctx });
     for (const i of incs) {
       const [before, after] = this.add(g, i);
       const name = g.names[i.id]; if (!name) continue;
@@ -258,26 +315,70 @@ class Recorder {
   }
 
   results() {
-    const crossings = this.crossings.map(c => measureCrossing(c, this.timelines.get(c.ticker) || []));
+    const crossings = this.crossings.map(c => {
+      const tl = this.timelines.get(c.ticker) || [];
+      const r = measureCrossing(c, tl);
+      if (!r.alreadyPriced) r.traj = trajectory(tl, c.playT, { final: 1, seenT: c.seenT });
+      return r;
+    });
     const games = [...this.games.values()].filter(g => g.seen.size).map(g => ({ id: g.id, name: g.name, suffix: g.suffix }));
+    // a game-line window ends at the next scoring play in the same game (max 120s), so the
+    // next basket's move isn't counted as this one's
+    const nextScore = new Map();
+    const byGame = {}; for (const s of this.scoring) (byGame[s.suffix] ||= []).push(s);
+    for (const list of Object.values(byGame)) { list.sort((a, b) => a.playT - b.playT); list.forEach((s, i) => nextScore.set(s, list[i + 1]?.playT ?? null)); }
     const scoreReactions = this.scoring.map(s => {
-      const tls = [...this.markets].filter(([, m]) => m.series === GAME_SERIES && m.suffix === s.suffix).map(([t]) => this.timelines.get(t) || []);
-      return { ...s, kalshiDelay: measureScoreReaction(s.playT, tls), feedDelay: (s.seenT - s.playT) / 1000 };
+      const tls = [...this.markets].filter(([, m]) => m.series === GAME_SERIES && m.suffix === s.suffix);
+      // the scoring team's "wins" market should go up
+      const own = tls.find(([t]) => t.endsWith("-" + tricode(s.team)));
+      const tl = own ? this.timelines.get(own[0]) || [] : [];
+      const margin = s.home != null && s.away != null ? Math.abs(s.home - s.away) : null;
+      return {
+        game: s.game, team: s.team, points: s.points, period: s.period, secsLeft: s.secsLeft, margin,
+        clutch: s.period >= 4 && s.secsLeft != null && s.secsLeft <= 300 && margin != null && margin <= 8,
+        playT: s.playT, feedDelay: (s.seenT - s.playT) / 1000,
+        kalshiDelay: measureScoreReaction(s.playT, tls.map(([t]) => this.timelines.get(t) || [])),
+        window: windowFor(s.playT, nextScore.get(s)),
+        traj: own ? trajectory(tl, s.playT, { seenT: s.seenT, window: windowFor(s.playT, nextScore.get(s)) }) : null,
+      };
     });
     const measured = crossings.filter(c => !c.alreadyPriced);
     const stale = measured.filter(c => c.feedFirst && c.staleEdge != null && c.staleEdge > 0);
+    const pTraj = measured.map(c => c.traj).filter(t => t && !t.flat);
+    const gTraj = scoreReactions.map(r => r.traj).filter(t => t && !t.flat);
+    const groups = {};
+    for (const r of scoreReactions) {
+      if (!r.traj) continue;
+      const key = `${r.clutch ? "Last 5 min, within 8" : "Rest of game"}|${r.points}`;
+      (groups[key] ||= []).push(r.traj);
+    }
+    const gameBySituation = Object.entries(groups).map(([k, ts]) => {
+      const [situation, points] = k.split("|"); const moving = ts.filter(t => !t.flat);
+      return { situation, points: +points, plays: ts.length, moved: moving.length,
+        medianMove: median(ts.map(t => Math.abs(t.move))), medianT50: median(moving.map(t => t.t50)), medianT90: median(moving.map(t => t.t90)) };
+    }).sort((a, b) => a.situation.localeCompare(b.situation) || a.points - b.points);
     return {
       date: new Date(this.started).toISOString().slice(0, 10), started: new Date(this.started).toISOString(), ended: new Date().toISOString(),
-      feed: FEED, pollMs: POLL_MS, games,
+      feed: FEED, pollMs: POLL_MS, offsets: OFFSETS, games,
       summary: {
         plays: this.feedDelays.length, crossings: crossings.length, measured: measured.length,
         medianFeedDelay: median(this.feedDelays), medianKalshiDelay: median(measured.map(c => c.kalshiDelay)),
         feedFirstShare: measured.length ? measured.filter(c => c.feedFirst).length / measured.length : null,
         staleChances: stale.length, medianStaleEdge: median(stale.map(c => c.staleEdge)),
         scoringPlays: scoreReactions.length, medianGameLineDelay: median(scoreReactions.map(r => r.kalshiDelay)),
+        // trajectory: props a play settled
+        propMove: median(pTraj.map(t => t.move)), propStart: median(pTraj.map(t => t.tStart)), propT50: median(pTraj.map(t => t.t50)),
+        propT90: median(pTraj.map(t => t.t90)), propSteps: median(pTraj.map(t => t.steps)), propTraded: median(pTraj.map(t => t.traded)),
+        propLeftAtSeen: median(pTraj.map(t => t.leftAtSeen)),
+        // trajectory: game-winner line after scoring plays
+        gameMoved: gTraj.length, gameMove: median(gTraj.map(t => Math.abs(t.move))), gameStart: median(gTraj.map(t => t.tStart)),
+        gameT50: median(gTraj.map(t => t.t50)), gameT90: median(gTraj.map(t => t.t90)), gameSteps: median(gTraj.map(t => t.steps)),
+        gameTraded: median(gTraj.map(t => t.traded)), gameLeftAtSeen: median(gTraj.map(t => t.leftAtSeen)),
       },
+      curves: { props: medianCurve(pTraj), game: medianCurve(gTraj) },
+      gameBySituation,
       crossings: crossings.map(({ seenT, playT, ...c }) => ({ ...c, play: new Date(playT).toISOString() })),
-      scoreReactions: scoreReactions.map(r => ({ play: new Date(r.playT).toISOString(), feedDelay: r.feedDelay, kalshiDelay: r.kalshiDelay })),
+      scoreReactions: scoreReactions.map(({ playT, ...r }) => ({ ...r, play: new Date(playT).toISOString() })),
     };
   }
 }
