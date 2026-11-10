@@ -86,3 +86,9 @@ h2{margin:0 0 10px;font-size:15px}
   .tables{grid-template-columns:1fr}
   .detail{padding:12px}
 }
+.avatar{position:relative;overflow:hidden;flex:none}
+.avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top;background:var(--panel2)}
+.tag{display:inline-block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;padding:1px 5px;border-radius:4px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);vertical-align:middle}
+.tag.inj{background:var(--red);border-color:var(--red);color:#fff;font-size:11px}
+.foot a{color:inherit}
+.sports button.off{opacity:.45}

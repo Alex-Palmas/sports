@@ -1,5 +1,9 @@
-(() => {
-  const DATA = window.PROPLAB_DATA;
+(async () => {
+  let DATA = window.PROPLAB_DATA, LIVE = false;
+  try {
+    const r = await fetch("data.json", { cache: "no-cache" });
+    if (r.ok) { const d = await r.json(); if (d && d.sports) { DATA = d; LIVE = true; } }
+  } catch {}
   const $ = s => document.querySelector(s);
   const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); Object.assign(e, attrs); if (html) e.innerHTML = html; return e; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -10,7 +14,7 @@
     stat: "all", side: "over", sort: "hit", q: "",
     sel: null, range: "L10", lineAdj: 0,
   };
-  if (!DATA.sports[state.sport]) state.sport = "nba";
+  if (!DATA.sports[state.sport] || !DATA.sports[state.sport].players.length) state.sport = Object.keys(DATA.sports).find(k => DATA.sports[k].players.length) || "nba";
 
   // ---------- helpers ----------
   const sport = () => DATA.sports[state.sport];
@@ -30,7 +34,15 @@
     const c = r >= 0.5 ? `rgba(34,197,94,${0.15 + a * 0.75})` : `rgba(239,68,68,${0.15 + a * 0.75})`;
     return `background:${c};color:${a > 0.55 ? "#fff" : "var(--text)"}`;
   };
-  const initials = n => n.split(" ").map(p => p[0]).join("");
+  const initials = n => n.split(" ").map(p => p[0]).join("").slice(0, 3);
+  const gameWhen = p => {
+    if (!p.gameDate) return p.gameTime || "";
+    const d = new Date(p.gameDate);
+    const day = d.toDateString() === new Date().toDateString() ? "Today" : d.toLocaleDateString([], { weekday: "short", month: "numeric", day: "numeric" });
+    return `${day} ${d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  };
+  const curSeason = p => p.logs.filter(l => l.season === p.logs[0]?.season);
+  const isProj = (p, k) => p.lineSource && p.lineSource[k] === "proj";
 
   function props() {
     const s = sport(); const out = [];
@@ -55,6 +67,8 @@
     const nav = $("#sportTabs"); nav.innerHTML = "";
     for (const [k, s] of Object.entries(DATA.sports)) {
       const b = el("button", { className: k === state.sport ? "active" : "", textContent: s.name });
+      if (!s.players.length) b.classList.add("off");
+      if (!s.players.length) b.title = s.note || "No upcoming games";
       b.setAttribute("role", "tab");
       b.onclick = () => { state.sport = k; state.stat = "all"; state.sel = null; store.set("sport", k); renderAll(); };
       nav.append(b);
@@ -65,13 +79,13 @@
 
   function renderList() {
     const list = $("#propList"); const rows = props(); list.innerHTML = "";
-    if (!rows.length) { list.innerHTML = `<li class="empty" style="display:block">No props match.</li>`; return rows; }
+    if (!rows.length) { list.innerHTML = `<li class="empty" style="display:block">${esc(sport().players.length ? "No props match." : (sport().note || "No upcoming games."))}</li>`; return rows; }
     const frag = document.createDocumentFragment();
     for (const r of rows.slice(0, 400)) {
       const li = el("li");
       if (state.sel && state.sel.id === r.p.id && state.sel.k === r.k) li.className = "sel";
       li.innerHTML = `<div style="min-width:0"><div class="pl-name">${esc(r.p.name)}</div>
-        <div class="pl-sub">${r.p.team} ${r.p.home ? "vs" : "@"} ${r.p.opp} · ${state.side === "over" ? "O" : "U"} ${r.line} ${esc(statLabel(r.k))}</div></div>
+        <div class="pl-sub">${r.p.team} ${r.p.home ? "vs" : "@"} ${r.p.opp} · ${state.side === "over" ? "O" : "U"} ${r.line} ${esc(statLabel(r.k))}${isProj(r.p, r.k) ? ` <span class="tag">proj</span>` : ""}</div></div>
         <div class="pill" style="${heat(r.l5)}">${pct(r.l5)}</div>
         <div class="pill" style="${heat(r.l10)}">${pct(r.l10)}</div>
         <div class="pill" style="${heat(r.l20)}">${pct(r.l20)}</div>`;
@@ -94,7 +108,7 @@
     if (r === "H2H") return p.logs.filter(l => l.opp === p.opp);
     if (r === "Home") return p.logs.filter(l => l.home);
     if (r === "Away") return p.logs.filter(l => !l.home);
-    if (r === "Season") return p.logs;
+    if (r === "Season") return curSeason(p);
     return p.logs.slice(0, +r.slice(1));
   }
 
@@ -128,7 +142,7 @@
     const s = sport();
     if (!state.sel) {
       const top = props().slice(0, 1)[0];
-      if (top) { state.sel = { id: top.p.id, k: top.k }; renderList(); } else { d.innerHTML = `<div class="card empty">Select a prop</div>`; return; }
+      if (top) { state.sel = { id: top.p.id, k: top.k }; renderList(); } else { d.innerHTML = `<div class="card empty">${esc(s.players.length ? "Select a prop" : (s.note || "No upcoming games for this league."))}</div>`; return; }
     }
     const p = s.players.find(x => x.id === state.sel.id); const k = state.sel.k;
     if (!p) { state.sel = null; return renderDetail(); }
@@ -140,20 +154,20 @@
     const hr = rate(logs, k, line, side);
     const o = p.odds[k];
     const implied = x => x < 0 ? -x / (-x + 100) : 100 / (x + 100);
-    const price = side === "over" ? o.over : o.under;
+    const price = o ? (side === "over" ? o.over : o.under) : null;
     const rank = p.oppRank[k];
     const n = s.teamCount;
     const rankTxt = rank <= n / 3 ? "Tough" : rank > n * 2 / 3 ? "Soft" : "Neutral";
     const rankColor = rank <= n / 3 ? "var(--red)" : rank > n * 2 / 3 ? "var(--accent)" : "var(--amber)";
 
-    const splits = [["L5", p.logs.slice(0, 5)], ["L10", p.logs.slice(0, 10)], ["L20", p.logs.slice(0, 20)], ["Season", p.logs], ["H2H", p.logs.filter(l => l.opp === p.opp)], ["Home", p.logs.filter(l => l.home)], ["Away", p.logs.filter(l => !l.home)]];
+    const splits = [["L5", p.logs.slice(0, 5)], ["L10", p.logs.slice(0, 10)], ["L20", p.logs.slice(0, 20)], ["Season", curSeason(p)], ["Last 40", p.logs], ["H2H", p.logs.filter(l => l.opp === p.opp)], ["Home", p.logs.filter(l => l.home)], ["Away", p.logs.filter(l => !l.home)]];
 
     d.innerHTML = `
       <button class="mobile-back" id="backBtn">← All props</button>
       <div class="card player-head">
-        <div class="avatar" style="background:${t.color}">${initials(p.name)}</div>
-        <div class="ph-main"><h1>${esc(p.name)}</h1><div class="pl-sub">${p.pos} · ${esc(t.name)}</div></div>
-        <div class="game-tag"><span class="pl-sub">Next game</span><b>${p.team} ${p.home ? "vs" : "@"} ${p.opp} · ${p.gameTime}</b></div>
+        <div class="avatar" style="background:${t ? t.color : "#64748b"}">${p.headshot ? `<img src="${esc(p.headshot)}" alt="" onerror="this.remove()">` : ""}<span>${esc(initials(p.name))}</span></div>
+        <div class="ph-main"><h1>${esc(p.name)}${p.injury ? ` <span class="tag inj">${esc(p.injury)}</span>` : ""}</h1><div class="pl-sub">${esc(p.pos)} · ${esc(t ? t.name : p.team)}</div></div>
+        <div class="game-tag"><span class="pl-sub">Next game</span><b>${p.team} ${p.home ? "vs" : "@"} ${p.opp} · ${esc(gameWhen(p))}</b></div>
       </div>
       <div class="card">
         <div class="stat-tabs" id="statTabs">${Object.keys(p.lines).map(sk => `<button class="chip ${sk === k ? "active" : ""}" data-k="${sk}">${esc(statLabel(sk))} ${p.lines[sk]}</button>`).join("")}</div>
@@ -163,13 +177,13 @@
         <div class="kpi"><div class="k">Average</div><div class="v">${fmt(avg(logs, k))}</div><div class="s">${(avg(logs, k) - line >= 0 ? "+" : "") + fmt(avg(logs, k) - line)} vs line</div></div>
         <div class="kpi"><div class="k">Median</div><div class="v">${fmt(median(logs, k))}</div><div class="s">${state.range} sample</div></div>
         <div class="kpi"><div class="k">Streak</div><div class="v">${streak(p.logs, k, line, side)}</div><div class="s">straight ${side}s</div></div>
-        <div class="kpi"><div class="k">${side} odds</div><div class="v">${odds(price)}</div><div class="s">${pct(implied(price))} implied</div></div>
+        <div class="kpi"><div class="k">${side} odds</div><div class="v">${price != null ? odds(price) : "—"}</div><div class="s">${price != null ? `${pct(implied(price))} implied${o.book ? " · " + esc(o.book) : ""}` : "projected line, no book odds"}</div></div>
         <div class="kpi"><div class="k">Opp vs ${esc(statLabel(k))}</div><div class="v" style="color:${rankColor}">${rank}<span style="font-size:13px">/${n}</span></div><div class="s">${rankTxt} matchup</div></div>
       </div>
       <div class="card">
         <div class="chart-top">
           <div class="stat-tabs" id="rangeTabs">${["L5", "L10", "L20", "Season", "H2H", "Home", "Away"].map(r => `<button class="chip ${r === state.range ? "active" : ""}" data-r="${r}">${r}</button>`).join("")}</div>
-          <div class="line-ctrl"><button id="lineDown" aria-label="Lower line">−</button><div class="line-val">${side === "over" ? "O" : "U"} ${line}<small>${state.lineAdj ? "alt line" : "main line"}</small></div><button id="lineUp" aria-label="Raise line">+</button></div>
+          <div class="line-ctrl"><button id="lineDown" aria-label="Lower line">−</button><div class="line-val">${side === "over" ? "O" : "U"} ${line}<small>${state.lineAdj ? "alt line" : isProj(p, k) ? "projected" : "book line"}</small></div><button id="lineUp" aria-label="Raise line">+</button></div>
         </div>
         ${logs.length ? chartSVG(logs, k, line, side) : `<div class="empty">No games in this split.</div>`}
       </div>
@@ -183,8 +197,8 @@
         <div class="card"><h2>Alt lines (L10)</h2><table><thead><tr><th>Line</th><th class="num">Over</th><th class="num">Under</th></tr></thead><tbody>
           ${altLines(base).map(L => { const lg = p.logs.slice(0, 10); const ov = rate(lg, k, L, "over"), un = rate(lg, k, L, "under"); return `<tr${L === line ? ` style="background:var(--panel2)"` : ""}><td><b>${L}</b>${L === base ? ` <span class="pl-sub">main</span>` : ""}</td><td class="num"><span class="pill" style="display:inline-block;width:52px;${heat(ov)}">${pct(ov)}</span></td><td class="num"><span class="pill" style="display:inline-block;width:52px;${heat(un)}">${pct(un)}</span></td></tr>`; }).join("")}
         </tbody></table>
-        <h2 style="margin-top:16px">${esc(ot.name)} matchup</h2>
-        <div class="pl-sub">Ranked ${rank} of ${n} in ${esc(statLabel(k))} allowed (1 = toughest). ${(() => { const h = p.logs.filter(l => l.opp === p.opp); return h.length ? `${esc(p.name.split(" ")[0])} averages ${fmt(avg(h, k))} in ${h.length} game${h.length > 1 ? "s" : ""} vs ${p.opp} this season.` : `No meetings with ${p.opp} yet this season.`; })()}</div>
+        <h2 style="margin-top:16px">${esc(ot ? ot.name : p.opp)} matchup</h2>
+        <div class="pl-sub">${rank ? `Ranked ${rank} of ${n} in ${esc(statLabel(k))} allowed (1 = toughest).` : ""} ${(() => { const h = p.logs.filter(l => l.opp === p.opp); return h.length ? `${esc(p.name.split(" ")[0])} averages ${fmt(avg(h, k))} in ${h.length} game${h.length > 1 ? "s" : ""} vs ${p.opp} this season.` : `No meetings with ${p.opp} yet this season.`; })()}</div>
         </div>
       </div>`;
 
@@ -216,6 +230,12 @@
   const theme = store.get("theme", null);
   if (theme) document.documentElement.dataset.theme = theme;
   $("#themeBtn").onclick = () => { const t = document.documentElement.dataset.theme === "light" ? "dark" : "light"; document.documentElement.dataset.theme = t; store.set("theme", t); };
+
+  const foot = document.querySelector(".foot");
+  if (LIVE) {
+    const upd = new Date(DATA.generated).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    foot.innerHTML = `Real game logs from ESPN · updated ${esc(upd)}. Lines tagged <span class="tag">proj</span> are projections from each player's last 10 games${DATA.oddsFetched ? "; others are sportsbook lines via The Odds API" : ""}. Not betting advice.`;
+  }
 
   renderAll();
 })();
