@@ -1,12 +1,14 @@
 name: Kalshi latency study
 
-# Records NBA play-by-play (ESPN) against Kalshi's market data while games are live,
-# then commits the measurements to site/latency/ for the app's "Kalshi Latency Study" tab.
-# Read-only: it never places orders.
+# Follows NBA and NFL games live: ESPN play-by-play against every Kalshi market for each game.
+# While games are on, a snapshot is pushed to the `live-data` branch every 3 minutes for the
+# app's live view; at the end the full recording is committed to site/latency/ on main.
+# Read-only: it never places orders. Each run exits early if no game is live or starts within 4 hours.
 on:
   schedule:
-    - cron: "50 23 * * *"    # ~6:50pm ET: evening slate
-    - cron: "50 16 * * 0,6"  # ~11:50am ET on weekends: afternoon games
+    - cron: "45 16 * * *"   # 11:45am ET: weekend/afternoon NFL and NBA
+    - cron: "15 22 * * *"   # 5:15pm ET: evening NBA and night NFL
+    - cron: "0 4 * * *"     # 11pm ET: late West Coast games
   workflow_dispatch:
 
 permissions:
@@ -29,11 +31,27 @@ jobs:
         run: node --test
       - name: Record live games
         env:
+          LEAGUES: nba,nfl
           FEED: espn
           MAX_MINUTES: "340"
-        run: node scripts/kalshi-latency.mjs
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/kalshi-latency.mjs &
+          REC=$!
+          # publish the live snapshot to the live-data branch (one commit, replaced each time)
+          publish() {
+            [ -f site/latency/live.json ] || return 0
+            tmp=$(mktemp -d); cp site/latency/live.json "$tmp/"
+            (cd "$tmp" && git init -q -b live-data && git add live.json \
+              && git -c user.name="github-actions[bot]" -c user.email="41898341+github-actions[bot]@users.noreply.github.com" commit -qm "Live Kalshi snapshot" \
+              && git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" live-data) || echo "live publish failed"
+            rm -rf "$tmp"
+          }
+          while kill -0 $REC 2>/dev/null; do sleep 180; publish; done
+          wait $REC
       - name: Commit results
         run: |
+          rm -f site/latency/live.json
           git add site/latency
           if git diff --cached --quiet; then echo "No new recordings."; exit 0; fi
           git config user.name "github-actions[bot]"

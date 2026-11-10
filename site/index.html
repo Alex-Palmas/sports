@@ -71,12 +71,14 @@
     <div class="arb-head">
       <div>
         <h1>Kalshi Latency Study</h1>
-        <p class="pl-sub">Does a free live feed see NBA plays before Kalshi reprices, and how long does Kalshi take to finish repricing? For every play that settles a Kalshi player prop, and every score on the game line, we follow the price for up to two minutes: when it starts moving, how far it goes, when it's halfway and 90% done, and how much of the move was left when the feed delivered the play. Read-only research: nothing here places orders.</p>
+        <p class="pl-sub">Follows every NBA and NFL game live against every Kalshi market for that game. Compare how each market type moves and how fast it reprices after scores, and see whether a free feed sees plays before Kalshi does. For every play that settles a player prop we follow the price for two minutes: when it starts moving, how far it goes, when it's halfway and 90% done, and how much of the move was left when the feed delivered the play. Read-only research: nothing here places orders.</p>
       </div>
       <div class="arb-ctrls" id="latPick" hidden>
         <label>Session <select id="latSession"></select></label>
       </div>
     </div>
+    <div id="latGames"></div>
+    <h2 class="sec-h">Prop latency</h2>
     <div id="latBody"></div>
     <details class="card lat-method">
       <summary>How it's measured</summary>
@@ -89,6 +91,7 @@
         <li><b>Starts / 50% / 90% done</b>: seconds after the play until the price first changed, and until it covered half and 90% of the total move. Moves under 1 point of probability count as no move.</li>
         <li><b>Price steps and contracts traded</b>: how many separate price changes the move took, and how many contracts changed hands meanwhile. Many small steps with steady trading mean the price drifts as people trade. A single jump means market makers repriced at once.</li>
         <li><b>Left when feed showed it</b>: the share of the move still to come when our feed delivered the play. This is the part a trader on this feed could still capture, before fees and order delay.</li>
+        <li><b>Game tracker</b>: each game's Kalshi markets are found from its moneyline event, then polled by market type within Kalshi's public rate limit (about 4 requests a second). Moneyline, spread, total and the headline prop refresh every few seconds; other props and quarter/half markets refresh less often, and each type's refresh interval is shown. Price changes are timed with Kalshi's own update stamp when it falls between two polls.</li>
         <li><b>Game line by situation</b> splits scores into the last 5 minutes of a game within 8 points ("clutch") and the rest, and by 1, 2 and 3 points.</li>
         <li>Polling once a second adds up to about a second of error to each timing. Plays that were already priced at 90¢ or more beforehand are excluded.</li>
       </ul>
@@ -99,6 +102,7 @@
 
   <script src="data.js"></script>
   <script src="arb.js"></script>
+  <script src="gametracker.js"></script>
   <script src="latency.js"></script>
   <script src="app.js"></script>
 </body>

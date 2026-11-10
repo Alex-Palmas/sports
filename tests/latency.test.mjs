@@ -96,3 +96,52 @@ test("game-line window stops before the next scoring play", () => {
   const t = trajectory([{ t: P - 5e3, bid: 0.5, ask: 0.52 }, { t: P + 3e3, bid: 0.55, ask: 0.57 }, { t: P + 40e3, bid: 0.30, ask: 0.32 }], P, { window: 20 });
   assert.equal(t.end, 0.56); assert.equal(t.path[OFFSETS.indexOf(30)], null);
 });
+
+import { matchEvent, seriesGroup, espnPlays, nflTotals, sparkline, LEAGUES } from "../scripts/kalshi-latency.mjs";
+
+test("matches ESPN games to Kalshi moneyline events (aliases, either order)", () => {
+  const nbaEv = [{ event_ticker: "KXNBAGAME-26NOV10MILNYK", sub_title: "MIL vs NYK (Nov 10)" }, { event_ticker: "KXNBAGAME-26NOV10GSWUTA", sub_title: "GSW at UTA (Nov 10)" }];
+  assert.equal(matchEvent("nba", { start: "2026-11-11T00:30:00Z", away: "MIL", home: "NY" }, nbaEv), "26NOV10MILNYK");
+  assert.equal(matchEvent("nba", { start: "2026-11-11T03:00:00Z", away: "GS", home: "UTAH" }, nbaEv), "26NOV10GSWUTA");
+  assert.equal(matchEvent("nba", { start: "2026-11-12T00:30:00Z", away: "MIL", home: "NY" }, nbaEv), null); // other date
+  const nflEv = [{ event_ticker: "KXNFLGAME-26NOV12WASNYG", sub_title: "WAS vs NYG (Nov 12)" }, { event_ticker: "KXNFLGAME-26NOV15JACTEN", sub_title: "JAC vs TEN (Nov 15)" }];
+  assert.equal(matchEvent("nfl", { start: "2026-11-13T01:15:00Z", away: "WSH", home: "NYG" }, nflEv), "26NOV12WASNYG");
+  assert.equal(matchEvent("nfl", { start: "2026-11-15T18:00:00Z", away: "TEN", home: "JAX" }, nflEv), "26NOV15JACTEN");
+});
+
+test("market groups", () => {
+  assert.equal(seriesGroup("KXNBAGAME", "nba"), "Moneyline");
+  assert.equal(seriesGroup("KXNFLSPREAD", "nfl"), "Spread & margin");
+  assert.equal(seriesGroup("KXNBATOTAL", "nba"), "Totals");
+  assert.equal(seriesGroup("KXNBA2QSPREAD", "nba"), "Quarters & halves");
+  assert.equal(seriesGroup("KXNFL1QBTTS", "nfl"), "Quarters & halves");
+  assert.equal(seriesGroup("KXNBAPTS", "nba"), "Player props");
+  assert.equal(seriesGroup("KXNFLRECYDSPROT", "nfl"), "Player props");
+  assert.equal(seriesGroup("KXNFLSFTY", "nfl"), "Game specials");
+  // every configured series has a group and appears once per league
+  for (const [k, L] of Object.entries(LEAGUES)) {
+    const all = [...L.fast, ...L.medium, ...L.slow];
+    assert.equal(new Set(all).size, all.length, `${k} has a duplicated series`);
+    for (const s of all) assert.ok(seriesGroup(s, k));
+  }
+});
+
+test("ESPN NFL plays come from drives; box-score totals", () => {
+  const s = { drives: { previous: [{ plays: [{ id: "1" }, { id: "2" }] }], current: { plays: [{ id: "3" }] } } };
+  assert.deepEqual(espnPlays(s).map(p => p.id), ["1", "2", "3"]);
+  assert.deepEqual(espnPlays({ plays: [{ id: "a" }] }).map(p => p.id), ["a"]);
+  const box = { boxscore: { players: [{ statistics: [
+    { name: "passing", keys: ["completions/passingAttempts", "passingYards", "passingTouchdowns"], athletes: [{ athlete: { id: "9", displayName: "Joe Burrow" }, stats: ["24/29", "271", "3"] }] },
+    { name: "rushing", keys: ["rushingAttempts", "rushingYards", "rushingTouchdowns"], athletes: [{ athlete: { id: "9", displayName: "Joe Burrow" }, stats: ["3", "12", "1"] }] },
+    { name: "receiving", keys: ["receptions", "receivingYards", "receivingTouchdowns"], athletes: [{ athlete: { id: "5", displayName: "Ja'Marr Chase" }, stats: ["10", "155", "1"] }] },
+  ] }] } };
+  const t = nflTotals(box);
+  assert.deepEqual(t["9"], { name: "Joe Burrow", pass_yds: 271, rush_yds: 12, rec_yds: 0, rec: 0, td: 1 });
+  assert.deepEqual(t["5"], { name: "Ja'Marr Chase", pass_yds: 0, rush_yds: 0, rec_yds: 155, rec: 10, td: 1 });
+});
+
+test("sparkline samples the mid price over time", () => {
+  const sp = sparkline([{ t: 0, bid: 0.4, ask: 0.5 }, { t: 50, bid: 0.6, ask: 0.7 }], 0, 100, 3);
+  assert.deepEqual(sp.v, [0.45, 0.65, 0.65]);
+  assert.equal(sparkline([], 0, 100, 3), null);
+});

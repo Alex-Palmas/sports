@@ -78,6 +78,10 @@
     const rows = data.crossings.slice().sort((a, b) => a.play.localeCompare(b.play));
     const measured = rows.filter(c => !c.alreadyPriced);
     const games = (data.scoreReactions || []).filter(r => r.traj && !r.traj.flat).sort((a, b) => Math.abs(b.traj.move) - Math.abs(a.traj.move));
+    if (!s.measured && !s.gameMoved) {
+      el.querySelector("#latBody").innerHTML = `<div class="card pl-sub">No player prop was settled by a play while it was being recorded in this session${data.leagues?.length ? ` (${esc(data.leagues.map(l => l.toUpperCase()).join(" + "))})` : ""}, so there's no prop-latency data. The game breakdowns above still have every market's movement.</div>`;
+      return;
+    }
     el.querySelector("#latBody").innerHTML = `
       <div class="card lat-verdict">${verdict(s, data.feed)}</div>
 
@@ -131,17 +135,19 @@
   async function render(el) {
     if (!index) index = await getJSON("latency/index.json");
     const sessions = Array.isArray(index) ? index : [];
-    el.querySelector("#latSession").innerHTML = sessions.map(s => `<option value="${esc(s.file)}">${esc(new Date(s.started || s.date).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))} · ${s.games} game${s.games === 1 ? "" : "s"} · ${esc(feedName(s.feed))}</option>`).join("");
+    el.querySelector("#latSession").innerHTML = sessions.map(s => `<option value="${esc(s.file)}">${esc(new Date(s.started || s.date).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }))} · ${s.games} game${s.games === 1 ? "" : "s"}${s.leagues ? " · " + esc(s.leagues.map(l => l.toUpperCase()).join(" + ")) : ""} · ${esc(feedName(s.feed))}</option>`).join("");
     el.querySelector("#latPick").hidden = !sessions.length;
     if (!sessions.length) {
+      window.PropGames.render(el, null);
       el.querySelector("#latBody").innerHTML = `<div class="card lat-empty">
         <h2>No recordings yet</h2>
-        <p>The recorder runs on GitHub every evening at about 6:50pm ET (and late morning on weekends) while NBA games are live. Each night's results appear here after the last game ends.</p>
+        <p>The recorder runs on GitHub three times a day (about 11:45am, 5:15pm and 11pm ET) and follows every NBA and NFL game that's live or starting soon. Live games appear above within a few minutes; the full prop-latency analysis appears here after the games end.</p>
         <p class="pl-sub">To run it yourself, or with the faster NBA feed from a home connection: <code>FEED=nba node scripts/kalshi-latency.mjs</code></p></div>`;
       return;
     }
     const file = el.querySelector("#latSession").value = loadedFile && sessions.some(s => s.file === loadedFile) ? loadedFile : sessions[0].file;
     if (loadedFile !== file || !current) { current = await getJSON("latency/" + file); loadedFile = file; }
+    window.PropGames.render(el, current);
     if (current) renderSession(el, current);
     else el.querySelector("#latBody").innerHTML = `<div class="card empty">Couldn't load this recording.</div>`;
   }
