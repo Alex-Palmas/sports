@@ -4,7 +4,10 @@
   const odds = a => a == null ? "—" : (a > 0 ? "+" : "") + a;
   const pct = x => x == null ? "—" : Math.round(x * 100) + "%";
   const evTxt = e => (e >= 0 ? "+" : "") + (e * 100).toFixed(1) + "%";
-  let opts = { league: "all", minEv: 0.02, marketOnly: true, q: "", show: 60 };
+  let opts = { league: "all", minEv: 0.02, minConf: "any", marketOnly: true, q: "", show: 60 };
+  const RANK = { Low: 0, Medium: 1, High: 2 }, MIN = { any: 0, medium: 1, high: 2 };
+  /** Confidence badge: grade + score, with the reasons in the tooltip. */
+  const confBadge = c => c ? `<span class="conf conf-${c.grade.toLowerCase()}" title="${esc(c.why.length ? c.why.map(w => `−${w.pts} ${w.txt}`).join("\n") : "Nothing lowers confidence")}"><i></i>${c.grade} ${c.score}</span>` : "";
   try { Object.assign(opts, JSON.parse(localStorage.getItem("proplab:edge") || "{}")); } catch {}
   const save = () => { try { localStorage.setItem("proplab:edge", JSON.stringify({ ...opts, show: 60 })); } catch {} };
 
@@ -32,6 +35,7 @@
         const r = M.bestBet(p, stat, lg); if (!r) continue;
         const label = sp.stats.find(s => s.key === stat)?.label || stat;
         if (opts.q && !`${p.name} ${p.team} ${label}`.toLowerCase().includes(opts.q.toLowerCase())) continue;
+        if (RANK[r.confidence?.grade] < MIN[opts.minConf]) continue;
         if (r.best) { if (r.best.ev < opts.minEv) continue; }
         else if (opts.marketOnly) continue;
         // no market: rank by how far the projection is from the line, in standard deviations
@@ -56,6 +60,7 @@
       ${lgs.map(([k, r]) => `<tr><td>${esc(name(k))}</td><td>${r.tuned.props.toLocaleString()}</td><td><b>${n2(r.tuned.logLoss)}</b></td><td>${n2(r.tuned.logLossHitRate)}</td><td>${n2(r.tuned.mainLine.logLoss)}</td><td>${n2(r.tuned.brier)}</td><td>${(+r.tuned.mae).toFixed(2)}</td></tr>`).join("")}
       </tbody></table></div>
       ${lgs.map(([k, r]) => `<div class="acc-cal"><span class="pl-sub">${esc(name(k))} calibration (predicted → actual over rate)</span><div class="acc-bars">${r.tuned.calibration.filter(b => b.n >= 30).map(b => `<span title="${b.n} props"><i style="height:${Math.round(b.actual * 100)}%"></i><em style="bottom:${Math.round(b.predicted * 100)}%"></em><small>${Math.round(b.predicted * 100)}</small></span>`).join("")}</div></div>`).join("")}` : ""}
+      ${live.some(([, t]) => t.byGrade) ? `<p class="pl-sub"><b>Live record by confidence</b>: ${live.map(([k, t]) => `${esc(name(k))}: ${Object.entries(t.byGrade || {}).map(([g, x]) => `${g} ${x.n} props, ours ${n2(x.model)} vs market ${n2(x.market)}`).join(", ")}`).join(" · ")}</p>` : ""}
       ${live.length ? `<p class="pl-sub"><b>Live record</b> (real lines, graded after each game): ${live.map(([k, t]) => `${esc(name(k))}: ${t.n} props, ours ${n2(t.model.logLoss)} vs market ${n2(t.market.logLoss)}, best market weight ${Math.round(t.blend.marketWeight * 100)}%`).join(" · ")}${live.some(([, t]) => t.n < 300) ? ". The EV blend switches to the live weight after 300 graded props." : ""}</p>` : `<p class="pl-sub">Live record: starts filling in as tonight's props are graded.</p>`}
     </details>`;
   }
@@ -68,11 +73,12 @@
       <div class="edge-ctrls card">
         <label>League <select id="edgeLeague"><option value="all">All</option>${leagues.map(([k, s]) => `<option value="${k}"${opts.league === k ? " selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>
         <label>Minimum EV <select id="edgeMin">${[[-1, "Any"], [0, "0%+"], [0.02, "2%+"], [0.05, "5%+"], [0.1, "10%+"]].map(([v, l]) => `<option value="${v}"${+opts.minEv === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Confidence <select id="edgeConf">${[["any", "Any"], ["medium", "Medium+"], ["high", "High only"]].map(([v, l]) => `<option value="${v}"${opts.minConf === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="edge-search">Search <input id="edgeQ" type="search" placeholder="Player, team or stat" value="${esc(opts.q)}" autocomplete="off"/></label>
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
       ${accuracy(DATA)}
-      <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · EV uses our projection blended with the market's vig-free price at that line (market weight ${Math.round(((window.PropModel.cfg(opts.league === "all" ? "nba" : opts.league).marketWeight) || 0.5) * 100)}%), after Kalshi fees where they apply. Above +25% usually means the model is missing something (news, minutes limits): check before betting. Not betting advice.</div>
+      <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · EV uses our projection blended with the market's vig-free price at that line (market weight ${Math.round(((window.PropModel.cfg(opts.league === "all" ? "nba" : opts.league).marketWeight) || 0.5) * 100)}%), after Kalshi fees where they apply. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
       <div class="edge-list">${shown.map((x, i) => {
         const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25;
         return `<button class="card edge-row" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">
@@ -81,17 +87,18 @@
           <span class="er-main"><b>${esc(p.name)}</b> <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}</span>
             <span class="er-prop">${b ? `${b.side === "over" ? "Over" : "Under"} ${b.line}` : `Line ${r.line}`} ${esc(label)} <span class="pl-sub">· projection <b>${r.proj.mean}</b></span></span>
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
-          <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>`
-            : `<span class="er-ev">${pct(r.probs.over > 0.5 ? r.probs.over : r.probs.under)}</span><span class="pl-sub">${r.probs.over > 0.5 ? "over" : "under"} · fair ${odds(r.probs.over > 0.5 ? r.fairOver : r.fairUnder)}</span><span class="pl-sub">no price yet</span>`}</span>
+          <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}`
+            : `<span class="er-ev">${pct(r.probs.over > 0.5 ? r.probs.over : r.probs.under)}</span><span class="pl-sub">${r.probs.over > 0.5 ? "over" : "under"} · fair ${odds(r.probs.over > 0.5 ? r.fairOver : r.fairUnder)}</span><span class="pl-sub">no price yet</span>${confBadge(r.confidence)}`}</span>
         </button>`; }).join("") || `<div class="card empty">Nothing matches. Lower the minimum EV, or untick "Only props with a price".</div>`}</div>
       ${all.length > shown.length ? `<button class="chip" id="edgeMore">Show more (${all.length - shown.length} left)</button>` : ""}`;
     const q = s => el.querySelector(s);
     q("#edgeLeague").onchange = e => { opts.league = e.target.value; save(); render(el, DATA, api); };
     q("#edgeMin").onchange = e => { opts.minEv = +e.target.value; save(); render(el, DATA, api); };
+    q("#edgeConf").onchange = e => { opts.minConf = e.target.value; save(); render(el, DATA, api); };
     q("#edgeMarket").onchange = e => { opts.marketOnly = e.target.checked; save(); render(el, DATA, api); };
     q("#edgeQ").oninput = e => { opts.q = e.target.value; clearTimeout(q("#edgeQ")._t); q("#edgeQ")._t = setTimeout(() => { save(); render(el, DATA, api); setTimeout(() => { const n = el.querySelector("#edgeQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
     if (q("#edgeMore")) q("#edgeMore").onclick = () => { opts.show += 60; render(el, DATA, api); };
     el.querySelectorAll(".edge-row").forEach(b => b.onclick = () => api.openProp(b.dataset.sport, b.dataset.pid, b.dataset.k));
   }
-  window.PropEdge = { render, chips };
+  window.PropEdge = { render, chips, confBadge };
 })();

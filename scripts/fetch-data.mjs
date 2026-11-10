@@ -507,7 +507,8 @@ export function applyTrack(out, track, now = Date.now(), M = PropModel) {
       if (!q || Number.isInteger(line)) continue;
       const proj = M.project(p, stat, lg); if (!proj) continue;
       const pr = M.probabilities(p, stat, line, proj, lg);
-      track.picks[`${lg}|${p.espnId}|${stat}|${day}`] = { lg, id: p.espnId, stat, day, line, model: +pr.over.toFixed(4), market: +M.marketProb(q, "over").toFixed(4), book: q.b };
+      const conf = M.bestBet ? M.bestBet(p, stat, lg)?.confidence : null;
+      track.picks[`${lg}|${p.espnId}|${stat}|${day}`] = { lg, id: p.espnId, stat, day, line, model: +pr.over.toFixed(4), market: +M.marketProb(q, "over").toFixed(4), book: q.b, grade: conf?.grade || null };
     }
   }
   for (const [k, x] of Object.entries(track.picks)) {
@@ -527,7 +528,9 @@ export function applyTrack(out, track, now = Date.now(), M = PropModel) {
     summary[lg] = { n: g.length, overRate: avg(x => x.y),
       model: { logLoss: avg(x => ll(x.model, x.y)), brier: avg(x => (x.model - x.y) ** 2) },
       market: { logLoss: avg(x => ll(x.market, x.y)), brier: avg(x => (x.market - x.y) ** 2) },
-      blend: { marketWeight: bestW, logLoss: bestLL } };
+      blend: { marketWeight: bestW, logLoss: bestLL },
+      byGrade: Object.fromEntries(["High", "Medium", "Low"].map(gr => [gr, g.filter(x => x.grade === gr)]).filter(([, a]) => a.length).map(([gr, a]) => [gr, {
+        n: a.length, model: +(a.reduce((s, x) => s + ll(x.model, x.y), 0) / a.length).toFixed(4), market: +(a.reduce((s, x) => s + ll(x.market, x.y), 0) / a.length).toFixed(4) }])) };
   }
   out.modelTrack = summary;
   return summary;

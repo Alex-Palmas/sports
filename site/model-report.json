@@ -1,5 +1,5 @@
 {
- "generated": "2026-11-10T20:27:16.922Z",
+ "generated": "2026-11-10T20:38:47.223Z",
  "source": "2026-11-10T19:49:20.041Z",
  "method": "Walk-forward replay: each game predicted from only the games before it. Lines at the player's recent median (x.5), ±1, and alternate strikes ±0.5 and ±1 standard deviation away. Settings tuned on the earlier 70% of dates; numbers below are the later 30%.",
  "leagues": {
@@ -10,6 +10,16 @@
    "defaults": {
     "cases": 19308,
     "props": 87950,
+    "confidence": {
+     "High": {
+      "props": 19288,
+      "excessLoss": 0.0019
+     },
+     "Medium": {
+      "props": 20,
+      "excessLoss": 0.1062
+     }
+    },
     "mainLine": {
      "props": 19308,
      "logLoss": 0.6369,
@@ -86,6 +96,16 @@
    "tuned": {
     "cases": 19308,
     "props": 87950,
+    "confidence": {
+     "High": {
+      "props": 19288,
+      "excessLoss": 0.0003
+     },
+     "Medium": {
+      "props": 20,
+      "excessLoss": 0.1051
+     }
+    },
     "mainLine": {
      "props": 19308,
      "logLoss": 0.6368,
@@ -167,6 +187,12 @@
    "defaults": {
     "cases": 4243,
     "props": 19328,
+    "confidence": {
+     "High": {
+      "props": 4243,
+      "excessLoss": 0.0196
+     }
+    },
     "mainLine": {
      "props": 4243,
      "logLoss": 0.6522,
@@ -243,6 +269,12 @@
    "tuned": {
     "cases": 4243,
     "props": 19328,
+    "confidence": {
+     "High": {
+      "props": 4243,
+      "excessLoss": 0.0127
+     }
+    },
     "mainLine": {
      "props": 4243,
      "logLoss": 0.6494,
@@ -324,6 +356,12 @@
    "defaults": {
     "cases": 12688,
     "props": 33913,
+    "confidence": {
+     "High": {
+      "props": 12688,
+      "excessLoss": 0.026
+     }
+    },
     "mainLine": {
      "props": 12688,
      "logLoss": 0.6205,
@@ -400,6 +438,12 @@
    "tuned": {
     "cases": 12688,
     "props": 33913,
+    "confidence": {
+     "High": {
+      "props": 12688,
+      "excessLoss": 0.0207
+     }
+    },
     "mainLine": {
      "props": 12688,
      "logLoss": 0.6172,

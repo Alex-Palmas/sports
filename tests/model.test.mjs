@@ -76,3 +76,14 @@ test("fitted settings stay inside sane bounds", () => {
     assert.ok(c.halfLife >= 3 && c.empWeight >= 0 && c.empWeight <= 0.5);
   }
 });
+
+test("confidence: clean prop is High; injury, thin market and big disagreement pull it down", () => {
+  const L = Array.from({ length: 30 }, (_, i) => ({ date: `2026-10-${String(30 - i).padStart(2, "0")}`, season: "s", min: 32, stats: { pts: 20 + (i % 5) } }));
+  const p = { logs: L, lines: { pts: 21.5 }, market: { pts: [{ b: "DK", l: 21.5, o: -110, u: -110 }] } };
+  const good = M.bestBet(p, "pts", "nba").confidence;
+  assert.equal(good.grade, "High"); assert.equal(good.score, 100);
+  const bad = M.confidence({ ...p, injury: "Questionable" }, "pts", "nba", M.project(p, "pts", "nba"),
+    { line: 30.5, price: 400, model: 0.45, market: 0.18, vol: 5 });
+  assert.equal(bad.grade, "Low");
+  assert.ok(bad.why.some(w => /disagree/.test(w.txt)) && bad.why.some(w => /questionable/.test(w.txt)));
+});
