@@ -635,7 +635,11 @@ body:not([data-view="props"]) .games-strip{display:none}
 .day-head{display:flex;justify-content:space-between;align-items:baseline;margin:14px 2px 2px;font-family:var(--font-display);font-size:18px}
 .day-head:first-child{margin-top:4px}
 /* Edge Board confidence filter chips */
-.conf-filter{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+/* pinned under the header while the Edge Board scrolls */
+.conf-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;position:sticky;top:var(--top-h,56px);z-index:4;padding:10px 14px;box-shadow:0 6px 16px -12px rgba(0,0,0,.35)}
+.conf-bar .cf-label{font-weight:700;font-size:13px;color:var(--text)}
+.conf-bar .cf-chip{font-size:13px;padding:6px 12px}
+@media (max-width:760px){.conf-bar{padding:8px 10px;gap:6px}.conf-bar .cf-chip{flex:1;justify-content:center;padding:7px 6px}.conf-bar .cf-label{width:100%}}
 .cf-label{font-size:12px;color:var(--muted);margin-right:2px}
 .cf-chip{cursor:pointer;border:1px solid transparent;font:inherit;font-size:12px;font-weight:700;padding:5px 10px;margin:0;opacity:.45;filter:saturate(.4);transition:opacity .15s,filter .15s}
 .cf-chip b{font-weight:800;opacity:.8}
