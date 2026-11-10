@@ -15,6 +15,12 @@
 
   let schedule = null, scheduleOk = true, scheduleAt = 0, live = null, liveAt = 0, sel = null, view = { group: "all", sort: "move", all: false }, timer = null;
 
+  // ESPN images (resized by ESPN's CDN); a failed image falls back to the full size, then disappears
+  const ESPN_IMG = "https://a.espncdn.com";
+  const sized = (path, w, h) => `${ESPN_IMG}/combiner/i?img=${path}&w=${w}&h=${h}&scale=crop&cquality=60`;
+  const img = (path, w, h, cls) => `<img class="${cls}" src="${sized(path, w * 2, h * 2)}" data-full="${ESPN_IMG}${path}" width="${w}" height="${h}" alt="" loading="lazy" decoding="async" onerror="window.__imgFallback ? window.__imgFallback(this) : this.remove()">`;
+  const logo = (league, abbr, size = 20) => abbr ? img(`/i/teamlogos/${league}/500/${String(abbr).toLowerCase()}.png`, size, size, "tlogo") : "";
+  const face = (league, id, size = 32) => id ? img(`/i/headshots/${league}/players/full/${id}.png`, size, size, "av-img") : "";
   async function getJSON(url, opts) { try { const r = await fetch(url, opts); return r.ok ? r.json() : null; } catch { return null; } }
   const ymd = d => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 
@@ -83,7 +89,7 @@
       const status = g.state === "in" ? `<span class="live-dot"></span>${esc(g.detail)} · ${esc(g.as)}–${esc(g.hs)}` : g.state === "post" ? `${esc(g.detail)} · ${esc(g.as)}–${esc(g.hs)}` : new Date(g.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + (g.broadcast ? ` · ${esc(g.broadcast)}` : "");
       const badge = liveKeys.has(g.key) ? `<span class="tag won">tracking live</span>` : recKeys.has(g.key) ? `<span class="tag">recorded</span>` : g.state === "pre" ? `<span class="tag">will track</span>` : "";
       const clickable = liveKeys.has(g.key) || recKeys.has(g.key);
-      return `<button class="gchip${sel === g.key ? " sel" : ""}${clickable ? "" : " dim"}" data-key="${esc(g.key)}" ${clickable ? "" : "disabled"}><span class="tag">${LEAGUES[g.league].name}</span> <b>${esc(g.name)}</b><span class="pl-sub">${status}</span>${badge}</button>`;
+      return `<button class="gchip${sel === g.key ? " sel" : ""}${clickable ? "" : " dim"}" data-key="${esc(g.key)}" ${clickable ? "" : "disabled"}><span class="gc-teams"><span class="tag">${LEAGUES[g.league].name}</span>${logo(g.league, g.away, 22)}<b>${esc(g.away)}</b><span class="pl-sub">@</span>${logo(g.league, g.home, 22)}<b>${esc(g.home)}</b></span><span class="pl-sub">${status}</span>${badge}</button>`;
     };
     return `<div class="card"><h2>Today and tomorrow <span class="pl-sub">NBA & NFL · every game is tracked live on Kalshi</span></h2>
       ${[0, 1].map(d => `<h3 class="day-h">${d ? "Tomorrow" : "Today"}</h3><div class="gchips">${day(d).map(chip).join("") || `<span class="pl-sub">${scheduleOk ? "No NBA or NFL games." : "Couldn't load the schedule from ESPN. It will retry in a minute."}</span>`}</div>`).join("")}
@@ -103,7 +109,7 @@
     const shown = view.all ? rows : rows.slice(0, 60);
     const score = r.score ? `${esc(r.away)} ${r.score.away} – ${r.score.home} ${esc(r.home)}` : "";
     return `<div class="card game-detail">
-      <div class="gd-head"><div><h2>${esc(LEAGUES[r.league]?.name || "")} · ${esc(r.awayName || r.away)} at ${esc(r.homeName || r.home)}</h2>
+      <div class="gd-head"><div class="gd-logos">${logo(r.league, r.away, 44)}<span class="pl-sub">at</span>${logo(r.league, r.home, 44)}</div><div><h2>${esc(LEAGUES[r.league]?.name || "")} · ${esc(r.awayName || r.away)} at ${esc(r.homeName || r.home)}</h2>
         <div class="pl-sub">${score}${r.detail ? ` · ${esc(r.detail)}` : ""} · ${r.markets.length} Kalshi markets · ${source === "live" ? `live snapshot` : "from the recording"}</div></div></div>
       <div class="table-wrap">${winChart(r)}</div>
       <h3 class="sub-h">Market types compared</h3>
@@ -130,7 +136,7 @@
     const shown = view.allPlayers ? ps : ps.slice(0, 12);
     const line = l => `<span class="ladder${l.settled ? " hit" : l.closed ? " closed" : ""}" title="${esc(l.label)}: ${cents(l.pre)} → ${cents(l.end)}${l.traded ? `, ${num(l.traded)} traded` : ""}">${esc(l.label.replace(/^(\d+\+)\s*/, "$1 "))} <b>${l.settled ? "✓" : cents(l.end)}</b>${!l.settled && l.change ? ` <i style="color:${l.change > 0 ? "var(--hit)" : "var(--miss)"}">${chg(l.change)}</i>` : ""}</span>`;
     return `<h3 class="sub-h">Players <span class="pl-sub">${ps.length} with Kalshi lines · ✓ = line already reached · price now, change since tip-off</span></h3>
-      <div class="players">${shown.map(p => `<div class="player-row"><div class="pr-head"><b>${esc(p.player)}</b><span class="pl-sub">${p.stats ? Object.entries(p.stats).filter(([, v]) => v).map(([k, v]) => `${v} ${STAT[k] || k}`).join(" · ") || "no stats yet" : ""}${p.events ? ` · ${p.events} events` : ""} · ${num(p.traded)} traded</span></div>
+      <div class="players">${shown.map(p => `<div class="player-row"><div class="pr-head"><span class="av" style="--av:34px"><span class="av-i">${esc(p.player.split(" ").map(x => x[0]).join("").slice(0, 2))}</span>${face(r.league, p.espnId, 34)}</span><b>${esc(p.player)}</b><span class="pl-sub">${p.stats ? Object.entries(p.stats).filter(([, v]) => v).map(([k, v]) => `${v} ${STAT[k] || k}`).join(" · ") || "no stats yet" : ""}${p.events ? ` · ${p.events} events` : ""} · ${num(p.traded)} traded</span></div>
         <div class="ladders">${p.lines.map(line).join("")}</div></div>`).join("")}</div>
       ${ps.length > 12 ? `<button class="chip" id="gdPlayers" style="margin-top:8px">${view.allPlayers ? "Show fewer players" : `Show all ${ps.length} players`}</button>` : ""}`;
   }

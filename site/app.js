@@ -19,6 +19,17 @@
   // ---------- helpers ----------
   const sport = () => DATA.sports[state.sport];
   const team = abbr => sport().teams.find(t => t.abbr === abbr);
+  // ---- images (ESPN CDN). Small sizes come from ESPN's resizer; on error fall back to the
+  // full image, then to initials (headshots) or nothing (logos).
+  const ESPN_IMG = "https://a.espncdn.com";
+  const sized = (full, w, h) => { try { const u = new URL(full); return u.host.endsWith("espncdn.com") ? `${ESPN_IMG}/combiner/i?img=${u.pathname}&w=${w}&h=${h}&scale=crop&cquality=60` : full; } catch { return full; } };
+  const imgTag = (full, w, h, cls, alt = "") => full ? `<img class="${cls}" src="${esc(sized(full, w * 2, h * 2))}" data-full="${esc(full)}" width="${w}" height="${h}" alt="${esc(alt)}" loading="lazy" decoding="async" onerror="window.__imgFallback(this)">` : "";
+  window.__imgFallback = img => { if (img.dataset.full && img.src !== img.dataset.full) img.src = img.dataset.full; else img.remove(); };
+  const logoOf = abbr => team(abbr)?.logo || null;
+  const teamLogo = (abbr, size = 18) => imgTag(logoOf(abbr), size, size, "tlogo", "");
+  // round player photo on the team colour, initials underneath as a fallback
+  const avatar = (p, size, extra = "", sp = null) => { const t = (sp || sport()).teams.find(x => x.abbr === p.team);
+    return `<span class="av ${extra}" style="--av:${size}px;background:${t ? t.color : "#64748b"}"><span class="av-i">${esc(initials(p.name))}</span>${p.headshot ? imgTag(p.headshot, size, size, "av-img", p.name) : ""}${t?.logo ? `<span class="av-team">${imgTag(t.logo, Math.round(size * 0.42), Math.round(size * 0.42), "tlogo", "")}</span>` : ""}</span>`; };
   const statLabel = k => sport().stats.find(s => s.key === k)?.label || k;
   const isHit = (v, line, side) => side === "over" ? v > line : v < line;
   const rate = (logs, k, line, side) => logs.length ? logs.filter(l => isHit(l.stats[k], line, side)).length / logs.length : 0;
@@ -122,9 +133,9 @@
     for (const r of rows.slice(0, 400)) {
       const li = el("li");
       if (state.sel && state.sel.id === r.p.id && state.sel.k === r.k) li.className = "sel";
-      li.innerHTML = `<div style="min-width:0"><div class="pl-name">${esc(r.p.name)}</div>
+      li.innerHTML = `<div class="pl-cell">${avatar(r.p, 38)}<div style="min-width:0"><div class="pl-name">${esc(r.p.name)}</div>
         <div class="pl-sub">${r.p.team} ${r.p.home ? "vs" : "@"} ${r.p.opp} · ${state.side === "over" ? "O" : "U"} ${r.line} ${esc(statLabel(r.k))}${isProj(r.p, r.k) ? ` <span class="tag">proj</span>` : ""}</div>
-        ${r.val ? `<div class="pl-sub best-row">Best: ${state.side === "over" ? "O" : "U"} ${r.val.q.l} <b>${odds(r.val.price)}</b> ${esc(shortBook(r.val.q.b))} · <span style="color:${evColor(r.val.ev)};font-weight:700">EV ${evTxt(r.val.ev)}</span></div>` : ""}</div>
+        ${r.val ? `<div class="pl-sub best-row">Best: ${state.side === "over" ? "O" : "U"} ${r.val.q.l} <b>${odds(r.val.price)}</b> ${esc(shortBook(r.val.q.b))} · <span style="color:${evColor(r.val.ev)};font-weight:700">EV ${evTxt(r.val.ev)}</span></div>` : ""}</div></div>
         <div class="pill" style="${heat(r.l5)}">${pct(r.l5)}</div>
         <div class="pill" style="${heat(r.l10)}">${pct(r.l10)}</div>
         <div class="pill" style="${heat(r.l20)}">${pct(r.l20)}</div>`;
@@ -204,9 +215,9 @@
     d.innerHTML = `
       <button class="mobile-back" id="backBtn">← All props</button>
       <div class="card player-head">
-        <div class="avatar" style="background:${t ? t.color : "#64748b"}">${p.headshot ? `<img src="${esc(p.headshot)}" alt="" onerror="this.remove()">` : ""}<span>${esc(initials(p.name))}</span></div>
-        <div class="ph-main"><h1>${esc(p.name)}${p.injury ? ` <span class="tag inj">${esc(p.injury)}</span>` : ""}</h1><div class="pl-sub">${esc(p.pos)} · ${esc(t ? t.name : p.team)}</div></div>
-        <div class="game-tag"><span class="pl-sub">Next game</span><b>${p.team} ${p.home ? "vs" : "@"} ${p.opp} · ${esc(gameWhen(p))}</b></div>
+        ${avatar(p, 84, "av-lg")}
+        <div class="ph-main"><h1>${esc(p.name)}${p.injury ? ` <span class="tag inj">${esc(p.injury)}</span>` : ""}</h1><div class="pl-sub team-line">${teamLogo(p.team, 20)}${esc(p.pos)} · ${esc(t ? t.name : p.team)}</div></div>
+        <div class="game-tag"><span class="pl-sub">Next game</span><b class="matchup">${teamLogo(p.team, 26)}${p.team} <span class="vs">${p.home ? "vs" : "@"}</span> ${teamLogo(p.opp, 26)}${p.opp}</b><span class="pl-sub">${esc(gameWhen(p))}</span></div>
       </div>
       <div class="card">
         <div class="stat-tabs" id="statTabs">${Object.keys(p.lines).map(sk => `<button class="chip ${sk === k ? "active" : ""}" data-k="${sk}">${esc(statLabel(sk))} ${p.lines[sk]}</button>`).join("")}</div>
@@ -234,7 +245,7 @@
       </div></div>
       <div class="tables">
         <div class="card"><h2>Game log</h2><table><thead><tr><th>Date</th><th>Opp</th>${p.logs[0].min != null ? `<th class="num">Min</th>` : ""}<th class="num">${esc(statLabel(k))}</th><th class="num">Result</th></tr></thead><tbody>
-          ${p.logs.slice(0, 15).map(l => { const h = isHit(l.stats[k], line, side); return `<tr><td>${l.date.slice(5).replace("-", "/")}</td><td>${l.home ? "vs" : "@"} ${l.opp}</td>${l.min != null ? `<td class="num">${l.min}</td>` : ""}<td class="num">${l.stats[k]}</td><td class="num ${h ? "h-over" : "h-under"}">${l.stats[k] === line ? "PUSH" : h ? "HIT" : "MISS"}</td></tr>`; }).join("")}
+          ${p.logs.slice(0, 15).map(l => { const h = isHit(l.stats[k], line, side); return `<tr><td>${l.date.slice(5).replace("-", "/")}</td><td class="opp-cell">${l.home ? "vs" : "@"} ${teamLogo(l.opp, 16)}${l.opp}</td>${l.min != null ? `<td class="num">${l.min}</td>` : ""}<td class="num">${l.stats[k]}</td><td class="num ${h ? "h-over" : "h-under"}">${l.stats[k] === line ? "PUSH" : h ? "HIT" : "MISS"}</td></tr>`; }).join("")}
         </tbody></table></div>
         <div class="card"><h2>Alt lines (L10)</h2><table><thead><tr><th>Line</th><th class="num">Over</th><th class="num">Under</th></tr></thead><tbody>
           ${altLines(base).map(L => { const lg = p.logs.slice(0, 10); const ov = rate(lg, k, L, "over"), un = rate(lg, k, L, "under"); return `<tr${L === line ? ` style="background:var(--panel2)"` : ""}><td><b>${L}</b>${L === base ? ` <span class="pl-sub">main</span>` : ""}</td><td class="num"><span class="pill" style="display:inline-block;width:52px;${heat(ov)}">${pct(ov)}</span></td><td class="num"><span class="pill" style="display:inline-block;width:52px;${heat(un)}">${pct(un)}</span></td></tr>`; }).join("")}
@@ -323,7 +334,7 @@
       const when = a.gameDate ? new Date(a.gameDate).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" }) : (a.gameTime || "");
       return `<div class="card arb ${a.margin > 0 ? "sure" : ""}" data-pid="${esc(a.playerId)}" data-k="${esc(a.stat)}" data-sport="${esc(a.sport)}">
         <div class="arb-top">
-          <div><b>${esc(a.player)}</b> · ${esc(a.statLabel)} <span class="pl-sub">${esc(a.sportName)} · ${esc(a.team)} ${a.home ? "vs" : "@"} ${esc(a.opp)} · ${esc(when)}</span></div>
+          <div class="arb-who">${(() => { const pl = DATA.sports[a.sport]?.players.find(x => x.id === a.playerId); return pl ? avatar(pl, 40, "", DATA.sports[a.sport]) : ""; })()}<div><b>${esc(a.player)}</b> · ${esc(a.statLabel)} <span class="pl-sub">${esc(a.sportName)} · ${esc(a.team)} ${a.home ? "vs" : "@"} ${esc(a.opp)} · ${esc(when)}</span></div></div>
           <div class="arb-margin" style="color:${a.margin > 0 ? "var(--hit)" : "var(--amber)"}">${a.margin > 0 ? "+" : ""}${(a.margin * 100).toFixed(2)}%${a.middle ? ` <span class="tag mid">middle ${a.over.l}–${a.under.l}</span>` : ""}</div>
         </div>
         <div class="legs">
