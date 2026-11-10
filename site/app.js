@@ -441,7 +441,8 @@
     const testing = ["arb", "lat", "crypto"].includes(v);
     if (testing) { state.lastTest = v; store.set("lastTest", v); }
     $("#testNav").hidden = !testing;
-    document.querySelectorAll("#testNav [data-test]").forEach(b => { const on = b.dataset.test === v; b.classList.toggle("active", on); b.setAttribute("aria-selected", on); });
+    document.querySelectorAll("#testMenu [data-test]").forEach(b => b.classList.toggle("active", b.dataset.test === v));
+    closeTestMenu();
     const navKey = testing ? "testing" : v;
     document.querySelectorAll("#viewNav .view-btn").forEach(b => { const on = b.dataset.view === navKey; b.classList.toggle("active", on); b.setAttribute("aria-current", on ? "page" : "false"); });
     document.body.dataset.view = v;
@@ -455,8 +456,26 @@
     window.scrollTo(0, 0);
     try { if (location.hash.slice(1) !== (v === "props" ? "" : v)) history.replaceState(null, "", v === "props" ? location.pathname : "#" + v); } catch {}
   }
-  document.querySelectorAll("#viewNav .view-btn").forEach(b => b.onclick = () => setView(b.dataset.view === "testing" ? (state.lastTest || store.get("lastTest", "arb")) : b.dataset.view));
-  document.querySelectorAll("#testNav [data-test]").forEach(b => b.onclick = () => setView(b.dataset.test));
+  // "Testing" opens a small menu instead of a page: these tools are experiments, not main features
+  function openTestMenu() {
+    const m = $("#testMenu"), btn = $("#testBtn");
+    m.hidden = false; $("#testBackdrop").hidden = false; btn.setAttribute("aria-expanded", "true");
+    if (window.innerWidth > 760) { const r = btn.getBoundingClientRect(); m.style.top = `${r.bottom + 8}px`; m.style.right = `${Math.max(12, innerWidth - r.right)}px`; }
+    else { m.style.top = ""; m.style.right = ""; }
+    (m.querySelector(".active") || m.querySelector("[data-test]")).focus();
+  }
+  function closeTestMenu() { const m = $("#testMenu"); if (!m || m.hidden) return; m.hidden = true; $("#testBackdrop").hidden = true; $("#testBtn").setAttribute("aria-expanded", "false"); }
+  document.querySelectorAll("#viewNav .view-btn").forEach(b => b.onclick = () => {
+    if (b.dataset.view === "testing") return $("#testMenu").hidden ? openTestMenu() : closeTestMenu();
+    setView(b.dataset.view);
+  });
+  document.querySelectorAll("#testMenu [data-test]").forEach(b => b.onclick = () => setView(b.dataset.test));
+  $("#testBackdrop").onclick = closeTestMenu;
+  document.addEventListener("keydown", e => {
+    if ($("#testMenu").hidden) return;
+    if (e.key === "Escape") { closeTestMenu(); $("#testBtn").focus(); }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); const it = [...document.querySelectorAll("#testMenu [data-test]")], i = it.indexOf(document.activeElement); it[(i + (e.key === "ArrowDown" ? 1 : it.length - 1)) % it.length].focus(); }
+  });
   // shared helpers for the Edge Board and My Bets views
   const api = {
     avatar,

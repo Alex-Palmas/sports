@@ -24,7 +24,7 @@
       <button class="view-btn active" data-view="props"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Props</span></button>
       <button class="view-btn" data-view="edge" id="edgeBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="long">Edge Board</span><span class="short">Edge</span></button>
       <button class="view-btn" data-view="bets" id="betsBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="long">My Bets</span><span class="short">Bets</span></button>
-      <button class="view-btn" data-view="testing" id="testBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3M7.5 14h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Testing</span></button>
+      <button class="view-btn test-btn" data-view="testing" id="testBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="testMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3M7.5 14h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Testing</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </nav>
     <button class="icon-btn" id="themeBtn" title="Switch light/dark" aria-label="Switch light or dark theme"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></button>
   </header>
@@ -75,14 +75,14 @@
 
   <dialog id="trackDlg" class="track-dlg" aria-label="Track a bet"></dialog>
 
-  <div class="testing-head" id="testNav" hidden>
-    <div class="testing-title"><h1>Testing</h1><p class="pl-sub">Experiments that aren't ready for everyday betting yet: arbitrage scanning, the Kalshi latency study and the crypto paper-trading bot.</p></div>
-    <div class="subnav" role="tablist" aria-label="Testing tools">
-      <button role="tab" data-test="arb">Arbitrage</button>
-      <button role="tab" data-test="lat"><span class="long">Kalshi Latency Study</span><span class="short">Latency</span></button>
-      <button role="tab" data-test="crypto">Crypto Bot</button>
-    </div>
+  <div class="test-menu" id="testMenu" role="menu" aria-label="Testing tools" hidden>
+    <div class="tm-head pl-sub">Testing: experiments, not everyday betting tools</div>
+    <button role="menuitem" data-test="arb"><b>Arbitrage</b><span class="pl-sub">Over/under pairs across books that profit either way</span></button>
+    <button role="menuitem" data-test="lat"><b>Kalshi Latency Study</b><span class="pl-sub">How fast Kalshi reprices after plays, with live paper trading</span></button>
+    <button role="menuitem" data-test="crypto"><b>Crypto Bot</b><span class="pl-sub">Paper-trading bot on Kalshi's BTC/ETH markets</span></button>
   </div>
+  <div class="test-backdrop" id="testBackdrop" hidden></div>
+  <div class="testing-crumb" id="testNav" hidden><span class="tag">Testing</span></div>
 
   <section class="arb-view" id="arbView" hidden>
     <div class="arb-head">

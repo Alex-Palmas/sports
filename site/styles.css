@@ -527,23 +527,26 @@ tbody tr:hover{background:var(--panel2)}
   .view-btn svg{width:20px;height:20px}
 }
 
-/* ---------- Testing tab: sub-navigation ---------- */
-.testing-head{max-width:1100px;width:100%;margin:0 auto;padding:20px 20px 0;display:flex;flex-direction:column;gap:12px}
-.testing-title h1{margin:0 0 4px;font-size:24px}
-.testing-title p{margin:0;max-width:640px}
-.subnav{display:flex;gap:4px;padding:4px;background:var(--panel2);border-radius:12px;width:max-content;max-width:100%;overflow-x:auto;scrollbar-width:none}
-.subnav::-webkit-scrollbar{display:none}
-.subnav button{border:0;background:none;color:var(--muted);font:600 14px var(--font-body);padding:8px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}
-.subnav button:hover{color:var(--text)}
-.subnav button.active{background:var(--panel);color:var(--accent);box-shadow:var(--shadow)}
-.subnav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-/* the testing sections sit under the shared header, so their own top padding shrinks */
-#testNav:not([hidden]) ~ .arb-view{padding-top:12px}
+/* ---------- Testing: a quiet menu, not a main tab ---------- */
+.test-btn{border-color:transparent!important;background:transparent!important;color:var(--muted);font-size:14px!important;opacity:.85}
+.test-btn:hover{opacity:1;color:var(--text)}
+.test-btn.active{color:var(--accent)!important;opacity:1}
+.test-btn .caret{width:14px!important;height:14px!important;margin-left:-2px;transition:transform .15s}
+.test-btn[aria-expanded="true"] .caret{transform:rotate(180deg)}
+.test-menu{position:fixed;z-index:40;width:300px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px;box-shadow:0 20px 50px -20px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px}
+.tm-head{padding:6px 10px 4px;font-size:11.5px}
+.test-menu [data-test]{display:flex;flex-direction:column;gap:2px;text-align:left;border:0;background:none;color:var(--text);padding:9px 10px;border-radius:10px;cursor:pointer;font:inherit}
+.test-menu [data-test]:hover,.test-menu [data-test]:focus-visible{background:var(--panel2);outline:none}
+.test-menu [data-test].active b{color:var(--accent)}
+.test-menu [data-test] .pl-sub{font-size:12px}
+.test-backdrop{position:fixed;inset:0;z-index:30;background:transparent}
+.testing-crumb{max-width:1100px;width:100%;margin:0 auto;padding:16px 20px 0}
+#testNav:not([hidden]) ~ .arb-view{padding-top:8px}
 @media (max-width:760px){
-  .testing-head{padding:12px 12px 0}
-  .testing-title p{display:none}
-  .subnav{width:100%}
-  .subnav button{flex:1;font-size:13px;padding:8px 6px}
+  .test-btn{opacity:.75}
+  .test-btn .caret{display:none}
+  .test-menu{left:12px;right:12px!important;width:auto;top:auto!important;bottom:calc(72px + env(safe-area-inset-bottom,0px));border-radius:16px}
+  .test-backdrop{background:rgba(5,10,20,.35)}
+  .testing-crumb{padding:12px 12px 0}
 }
-.subnav .short{display:none}
-@media (max-width:760px){ .subnav .long{display:none} .subnav .short{display:inline} }
+@media (max-width:760px){ .test-btn{font-size:10px!important;font-family:var(--font-body)} }
