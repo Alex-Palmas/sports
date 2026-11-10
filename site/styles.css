@@ -711,3 +711,9 @@ html.auth-locked body>*:not(.login-screen){display:none!important}
 .login-btn:disabled{opacity:.6;cursor:wait}
 .login-foot{text-align:center;font-size:12px}
 .set-acct{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--panel2);border-radius:10px;padding:8px 10px;font-size:13px}
+/* chart caption + the list column that matches the chart's range */
+.chart-cap{font-size:13px;color:var(--muted);margin:2px 2px 6px}
+.chart-cap b{color:var(--text)}
+.list-head span.col-on{color:var(--accent);font-weight:800}
+#propList[data-col="1"] li:not(.day-sep)>.pill:nth-child(2),#propList[data-col="2"] li:not(.day-sep)>.pill:nth-child(3),
+#propList[data-col="3"] li:not(.day-sep)>.pill:nth-child(4),#propList[data-col="4"] li:not(.day-sep)>.pill:nth-child(5){box-shadow:inset 0 0 0 2px var(--accent)}
