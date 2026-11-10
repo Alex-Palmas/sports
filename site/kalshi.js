@@ -93,16 +93,12 @@
   const saveSettings = s => { try { localStorage.setItem(LS, JSON.stringify(s)); } catch {} };
   const idb = () => new Promise((res, rej) => { const r = indexedDB.open("proplab-kalshi", 1); r.onupgradeneeded = () => r.result.createObjectStore("keys"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   async function idbDo(mode, fn) { const db = await idb(); return new Promise((res, rej) => { const tx = db.transaction("keys", mode), st = tx.objectStore("keys"), r = fn(st); tx.oncomplete = () => res(r?.result); tx.onerror = () => rej(tx.error); }); }
-  // one saved key per signed-in user
-  const KEY_SLOT = () => (root.PROPLAB_USER?.u ? "user:" + root.PROPLAB_USER.u.toLowerCase() : "main");
+  const KEY_SLOT = () => "main";
   let credCache;
   async function getCred() {
     if (credCache !== undefined) return credCache;
     try {
       credCache = (await idbDo("readonly", s => s.get(KEY_SLOT()))) || null;
-      // the account that inherited this device's pre-login data also gets a key saved before sign-in existed
-      const u = root.PROPLAB_USER?.u;
-      if (!credCache && u && localStorage.getItem("proplab:legacyClaimed") === u) credCache = (await idbDo("readonly", s => s.get("main"))) || null;
     } catch { credCache = null; }
     return credCache;
   }
@@ -134,7 +130,7 @@
     const dlg = document.getElementById("settingsDlg"), s = settings(), cred = await getCred();
     dlg.innerHTML = `<form method="dialog" class="track-form" id="setForm">
       <h2>Settings</h2>
-      ${root.PROPLAB_USER ? `<div class="set-acct"><span>Signed in as <b>${esc(root.PROPLAB_USER.name || root.PROPLAB_USER.u)}</b></span><button type="button" class="chip sm" id="setSignOut">Sign out</button></div>` : ""}
+      ${root.PropAuth?.unlocked?.() ? `<div class="set-acct"><span>Unlocked on this device</span><button type="button" class="chip sm" id="setSignOut">Lock</button></div>` : ""}
       <h3 class="set-h">Kalshi account</h3>
       <p class="pl-sub">Lets you place a bet on Kalshi from a prop you like. Your private key stays in this browser, locked so it can be used to sign orders but never read back out. Real money: orders are only sent after you confirm each one.</p>
       ${cred ? `<div class="set-key"><span class="tag won">key saved</span> <span class="pl-sub">API key ID ${esc(cred.keyId.slice(0, 8))}… · ${esc(cred.alg)} · added ${new Date(cred.savedAt).toLocaleDateString()}</span> <button type="button" class="chip sm" id="setForget">Remove key</button></div>` : ""}
@@ -157,7 +153,7 @@
     const $ = q => dlg.querySelector(q), msg = (t, bad) => { $("#setMsg").innerHTML = t; $("#setMsg").style.color = bad ? "var(--miss)" : ""; };
     $("#setFile").onchange = async e => { const f = e.target.files[0]; if (f) $("#setPem").value = await f.text(); };
     $("#setClose").onclick = () => dlg.close();
-    if ($("#setSignOut")) $("#setSignOut").onclick = () => root.PropAuth?.signOut();
+    if ($("#setSignOut")) $("#setSignOut").onclick = () => root.PropAuth?.lock();
     if ($("#setForget")) $("#setForget").onclick = async () => { await forget(); saveSettings({ ...settings(), enabled: false }); openSettings(); };
     const persist = async () => {
       const relay = $("#setRelay").value.trim() || "http://localhost:8787";
