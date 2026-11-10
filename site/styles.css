@@ -610,25 +610,27 @@ a.chip.kalshi-link{font-size:13px;border:1px solid var(--accent)}
 .h2h-kpis b{font-family:var(--font-display);font-size:24px;line-height:1.1}
 @media (max-width:760px){.h2h-kpis{gap:6px}.h2h-kpis>div{padding:8px}.h2h-kpis b{font-size:19px}}
 
-/* games strip: the day's matchups across the top */
-.games-strip{display:flex;gap:8px;align-items:stretch;overflow-x:auto;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);scrollbar-width:thin;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+/* games strip: day cell + compact game cards (two stacked teams, time on the right) */
+.games-strip{display:flex;gap:8px;align-items:stretch;overflow-x:auto;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);scrollbar-width:none;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.games-strip::-webkit-scrollbar{display:none}
 body:not([data-view="props"]) .games-strip{display:none}
-.games-strip button{flex:none;display:flex;flex-direction:column;justify-content:center;gap:3px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:7px 12px;cursor:pointer;color:var(--text);font:inherit;text-align:left;scroll-snap-align:start;transition:border-color .15s,background .15s}
-.games-strip button:hover{border-color:var(--accent)}
-.games-strip button.active{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
-.gs-all b{font-size:13px}.gs-all span{font-size:11px;color:var(--muted)}
-.gs-day{flex:none;align-self:center;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);writing-mode:horizontal-tb;padding:0 2px 0 6px}
-.gs-teams{display:flex;align-items:center;gap:6px;font-size:14px}
-.gs-team{display:inline-flex;align-items:center;gap:4px}.gs-team b{font-family:var(--font-display);font-weight:700;letter-spacing:.02em}
-.gs-at{color:var(--muted);font-size:12px}
-.gs-meta{font-size:11px;color:var(--muted);white-space:nowrap}
+.games-strip button{flex:none;display:flex;align-items:center;background:var(--panel2);border:1px solid transparent;border-radius:14px;cursor:pointer;color:var(--text);font:inherit;text-align:left;scroll-snap-align:start;transition:border-color .15s,background .15s,opacity .15s}
+.games-strip button:hover{border-color:var(--line)}
+.gs-daycell{flex-direction:column;justify-content:center;align-items:center;gap:2px;min-width:86px;padding:8px 12px;color:var(--muted)!important}
+.gs-daycell span{font-size:13px;font-weight:600}
+.gs-daycell small{font-size:10px;font-weight:600;letter-spacing:.08em}
+.gs-daycell.active{background:var(--panel);border-color:var(--line);color:var(--text)!important}
+.gs-daycell.active small{color:var(--muted)}
+.gs-game{gap:14px;padding:8px 14px 8px 12px;min-width:150px;justify-content:space-between}
+.gs-game.active{border-color:var(--accent);background:var(--accent-soft)}
+.gs-game.dim{opacity:.5}
+.gs-rows{display:flex;flex-direction:column;gap:6px}
+.gs-row{display:flex;align-items:center;gap:8px;font-size:15px;line-height:1}
+.gs-row b{font-family:var(--font-display);font-weight:700;letter-spacing:.02em}
+.gs-row .tlogo{width:20px;height:20px;margin:0}
+.gs-time{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .gs-live{color:var(--miss);font-weight:800;letter-spacing:.05em}
-@media (max-width:760px){.games-strip{padding:8px 12px;gap:6px}.games-strip button{padding:6px 10px;border-radius:10px}.gs-teams{font-size:13px}}
-.gs-days{flex:none;display:flex;gap:4px;align-self:stretch;padding-right:6px;margin-right:2px;border-right:1px solid var(--line)}
-.games-strip .gs-daybtn{padding:6px 10px;border-radius:10px;font-weight:700;font-size:13px;background:none;border-color:transparent}
-.games-strip .gs-daybtn span{font-size:10px;font-weight:600;color:var(--muted)}
-.games-strip .gs-daybtn.active{background:var(--text);color:var(--bg);border-color:var(--text);box-shadow:none}
-.games-strip .gs-daybtn.active span{color:var(--bg);opacity:.75}
+@media (max-width:760px){.games-strip{padding:8px 12px;gap:6px}.gs-game{min-width:142px;padding:8px 12px 8px 10px;gap:12px}.gs-row{font-size:14px}.gs-daycell{min-width:78px}}
 /* day sections */
 .prop-list li.day-sep{display:flex;justify-content:space-between;align-items:baseline;padding:8px 12px 6px;background:var(--panel2);font-family:var(--font-display);font-weight:700;font-size:14px;letter-spacing:.02em;cursor:default;position:sticky;top:0;z-index:1;border-bottom:1px solid var(--line)}
 .prop-list li.day-sep:hover{background:var(--panel2)}
