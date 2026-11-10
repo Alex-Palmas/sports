@@ -5,8 +5,8 @@
   const odds = a => a == null ? "—" : (a > 0 ? "+" : "") + a;
   const usd = x => x == null ? "—" : `${x < 0 ? "−" : ""}$${Math.abs(x).toFixed(2)}`;
   const pct = x => x == null ? "—" : `${(x * 100).toFixed(1)}%`;
-  const load = (k, d) => { try { const v = localStorage.getItem("proplab:" + k); return v == null ? d : JSON.parse(v); } catch { return d; } };
-  const store = (k, v) => { try { localStorage.setItem("proplab:" + k, JSON.stringify(v)); } catch {} };
+  const load = (k, d) => { try { const v = localStorage.getItem((window.PROPLAB_NS || "proplab:") + k); return v == null ? d : JSON.parse(v); } catch { return d; } };
+  const store = (k, v) => { try { localStorage.setItem((window.PROPLAB_NS || "proplab:") + k, JSON.stringify(v)); } catch {} };
   const M = () => window.PropModel;
   const LEAGUE_PATH = { nba: "basketball/nba", nfl: "football/nfl", nhl: "hockey/nhl", mlb: "baseball/mlb" };
 
