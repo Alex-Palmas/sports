@@ -30,6 +30,20 @@ Kalshi needs no setup and refreshes every 3 hours.
 ### Arbitrage
 The **⇄ Arbitrage** view scans every prop for an over at one book plus an under at another that guarantees a profit (margin = 1/(1/d₁ + 1/d₂) − 1 with decimal odds). It shows the stake split for any total, and flags **middles**, where the over line is below the under line so both legs can win, along with how often the player landed in that window over their last 20 games. Arbs need prices from several books, so add `ODDS_API_KEY`. Prices move and books limit arbers, so re-check both legs before betting.
 
+## Kalshi Latency Study
+Does a free live feed see NBA plays before Kalshi reprices? `scripts/kalshi-latency.mjs` polls a play-by-play feed and Kalshi's public market data about once a second while games are live. For every play that settles a Kalshi player prop (a basket that takes a player past 20 points settles "20+ points" as YES), it records:
+- **when the play happened** (the feed's wallclock stamp),
+- **when the feed delivered it**,
+- **when Kalshi caught up** (YES bid reached 90¢, or Kalshi closed the market),
+- **the stale price** Kalshi still showed when the feed delivered the play, and the profit per contract after fees.
+
+It also records how fast Kalshi's game-winner market moves after each scoring play. `.github/workflows/kalshi-latency.yml` runs it every evening at about 6:50pm ET (and late morning on weekends) and commits the results to `site/latency/`, and the app's **Kalshi Latency Study** tab shows them. It only reads data and never places orders.
+
+Feeds: `FEED=espn` (default) works from GitHub's servers. `FEED=nba` uses the NBA's official CDN, which is usually faster but blocks cloud servers, so run it from a home connection:
+```sh
+FEED=nba node scripts/kalshi-latency.mjs   # results land in site/latency/
+```
+
 ## Deploy
 `.github/workflows/pages.yml` fetches fresh data every 3 hours (and on every push to `main`) and publishes `site/` to GitHub Pages.
 One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.

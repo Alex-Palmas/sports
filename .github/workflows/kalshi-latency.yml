@@ -1,0 +1,42 @@
+name: Kalshi latency study
+
+# Records NBA play-by-play (ESPN) against Kalshi's market data while games are live,
+# then commits the measurements to site/latency/ for the app's "Kalshi Latency Study" tab.
+# Read-only: it never places orders.
+on:
+  schedule:
+    - cron: "50 23 * * *"    # ~6:50pm ET: evening slate
+    - cron: "50 16 * * 0,6"  # ~11:50am ET on weekends: afternoon games
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kalshi-latency
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test
+        run: node --test
+      - name: Record live games
+        env:
+          FEED: espn
+          MAX_MINUTES: "340"
+        run: node scripts/kalshi-latency.mjs
+      - name: Commit results
+        run: |
+          git add site/latency
+          if git diff --cached --quiet; then echo "No new recordings."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Kalshi latency study: $(date -u +%Y-%m-%d) recording"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push -q origin HEAD:main && break; sleep 5; done

@@ -3,8 +3,12 @@
   --accent:#22c55e;--accent2:#16a34a;--red:#ef4444;--amber:#f59e0b;--blue:#3b82f6;
   --hit:#22c55e;--miss:#ef4444;--push:#64748b;
 }
+:root{color-scheme:dark}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){
+  --bg:#f4f6f9;--panel:#ffffff;--panel2:#f0f3f7;--line:#dfe5ec;--text:#111827;--muted:#5b6777;color-scheme:light;
+}}
 :root[data-theme="light"]{
-  --bg:#f4f6f9;--panel:#ffffff;--panel2:#f0f3f7;--line:#dfe5ec;--text:#111827;--muted:#5b6777;
+  --bg:#f4f6f9;--panel:#ffffff;--panel2:#f0f3f7;--line:#dfe5ec;--text:#111827;--muted:#5b6777;color-scheme:light;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
@@ -124,3 +128,30 @@ table.shop td.top{font-weight:800;color:var(--hit)}
 .leg{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
 .leg .px{color:var(--accent)}
 @media (max-width:900px){.legs{grid-template-columns:1fr}.arb-view{padding:12px}.topbar{gap:8px}}
+.lat-view .kpis{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.lat-verdict{font-size:15px;line-height:1.5}
+.lat-empty p{max-width:640px;margin:8px 0 0}
+.lat-empty code,.lat-method code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
+.lat-method summary{cursor:pointer;font-weight:700}
+.lat-method ul{margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px;color:var(--muted);max-width:760px}
+.lat-method b{color:var(--text)}
+.lat-chart{width:100%;min-width:560px;height:auto;display:block}
+.lat-chart text{fill:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}
+.lat-chart .row-lab{fill:var(--text)}
+.lat-chart .axis-lab{font-weight:700}
+.lat-chart .grid{stroke:var(--line)}
+.lat-chart .zero{stroke:var(--muted);stroke-dasharray:3 3}
+.lat-chart .link{stroke-width:3;opacity:.55}
+.lat-chart .link.won{stroke:var(--hit)}
+.lat-chart .link.lost{stroke:var(--miss)}
+.lat-chart .dot-feed{fill:var(--blue)}
+.lat-chart .dot-kalshi{fill:var(--amber)}
+.lat-legend{display:flex;flex-wrap:wrap;gap:14px;margin-bottom:8px}
+.lat-legend i{display:inline-block;width:10px;height:10px;border-radius:50%;vertical-align:-1px;margin-right:4px}
+.lat-legend .lg-feed{background:var(--blue)}.lat-legend .lg-kalshi{background:var(--amber);border-radius:2px}
+.lat-legend .lg-won{background:var(--hit);height:4px;border-radius:2px;vertical-align:2px}.lat-legend .lg-lost{background:var(--miss);height:4px;border-radius:2px;vertical-align:2px}
+.lat-table td,.lat-table th{white-space:nowrap}
+.lat-table tr.muted td{opacity:.55}
+.tag.won{background:var(--hit);border-color:var(--hit);color:#052e16}
+.tag.lost{background:var(--miss);border-color:var(--miss);color:#fff}
+.topbar{flex-wrap:wrap}

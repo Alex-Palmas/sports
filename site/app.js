@@ -297,7 +297,9 @@
   });
   const theme = store.get("theme", null);
   if (theme) document.documentElement.dataset.theme = theme;
-  $("#themeBtn").onclick = () => { const t = document.documentElement.dataset.theme === "light" ? "dark" : "light"; document.documentElement.dataset.theme = t; store.set("theme", t); };
+  $("#themeBtn").onclick = () => {
+    const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+    const t = cur === "light" ? "dark" : "light"; document.documentElement.dataset.theme = t; store.set("theme", t); };
 
   // ---------- arbitrage view ----------
   const money = x => "$" + x.toFixed(2);
@@ -338,14 +340,20 @@
   function setView(v) {
     state.view = v;
     $("#arbView").hidden = v !== "arb";
-    document.querySelector(".layout").hidden = v === "arb";
+    $("#latView").hidden = v !== "lat";
+    document.querySelector(".layout").hidden = v !== "props";
     $("#arbBtn").classList.toggle("active", v === "arb");
-    if (v === "arb") { document.querySelectorAll("#sportTabs button").forEach(b => b.classList.remove("active")); renderArbs(); }
+    $("#latBtn").classList.toggle("active", v === "lat");
+    if (v !== "props") document.querySelectorAll("#sportTabs button").forEach(b => b.classList.remove("active"));
+    if (v === "arb") renderArbs();
+    else if (v === "lat") window.PropLatency.render($("#latView"));
     else renderTabs();
   }
   $("#arbBtn").onclick = () => setView(state.view === "arb" ? "props" : "arb");
+  $("#latBtn").onclick = () => setView(state.view === "lat" ? "props" : "lat");
+  window.PropLatency.wire($("#latView"));
   ["#arbStake", "#arbMin", "#arbSport"].forEach(id => $(id).addEventListener("input", renderArbs));
-  $("#sportTabs").addEventListener("click", () => { if (state.view === "arb") setView("props"); }, true);
+  $("#sportTabs").addEventListener("click", () => { if (state.view && state.view !== "props") setView("props"); }, true);
 
   const foot = document.querySelector(".foot");
   if (LIVE) {
