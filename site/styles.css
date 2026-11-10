@@ -629,3 +629,8 @@ body:not([data-view="props"]) .games-strip{display:none}
 .games-strip .gs-daybtn span{font-size:10px;font-weight:600;color:var(--muted)}
 .games-strip .gs-daybtn.active{background:var(--text);color:var(--bg);border-color:var(--text);box-shadow:none}
 .games-strip .gs-daybtn.active span{color:var(--bg);opacity:.75}
+/* day sections */
+.prop-list li.day-sep{display:flex;justify-content:space-between;align-items:baseline;padding:8px 12px 6px;background:var(--panel2);font-family:var(--font-display);font-weight:700;font-size:14px;letter-spacing:.02em;cursor:default;position:sticky;top:0;z-index:1;border-bottom:1px solid var(--line)}
+.prop-list li.day-sep:hover{background:var(--panel2)}
+.day-head{display:flex;justify-content:space-between;align-items:baseline;margin:14px 2px 2px;font-family:var(--font-display);font-size:18px}
+.day-head:first-child{margin-top:4px}
