@@ -235,7 +235,7 @@
         <div class="kpi"><div class="k">Median</div><div class="v">${fmt(median(logs, k))}</div><div class="s">${state.range} sample</div></div>
         <div class="kpi"><div class="k">Streak</div><div class="v">${streak(p.logs, k, line, side)}</div><div class="s">straight ${side}s</div></div>
         ${(() => { const bb = window.PropModel.bestBet(p, k, state.sport), b = bb?.best; return b
-          ? `<div class="kpi"><div class="k">Best bet</div><div class="v" style="color:${evColor(b.ev)}">EV ${evTxt(b.ev)}</div><div class="s">${b.side === "over" ? "O" : "U"} ${b.line} ${odds(b.price)} · ${esc(b.book)}</div></div>`
+          ? `<div class="kpi"><div class="k">Best bet</div><div class="v" style="color:${evColor(b.ev)}">EV ${evTxt(b.ev)}</div><div class="s">${b.side === "over" ? "O" : "U"} ${b.line} ${odds(b.price)} · ${esc(b.book)}</div>${window.PropEdge.confBadge(bb.confidence)}</div>`
           : `<div class="kpi"><div class="k">Projection</div><div class="v">${bb ? bb.proj.mean : "—"}</div><div class="s">${price != null ? `${side} ${odds(price)} · ${pct(implied(price))} implied` : "no market price yet"}</div></div>`; })()}
         <div class="kpi"><div class="k">Opp vs ${esc(statLabel(k))}</div><div class="v" style="color:${rankColor}">${rank}<span style="font-size:13px">/${n}</span></div><div class="s">${rankTxt} matchup</div></div>
       </div>
@@ -289,6 +289,7 @@
     // projection
     const proj = `<div class="card"><h2>Projection <span class="pl-sub">${esc(statL)}</span></h2>
       <div class="proj-top"><div class="proj-num">${r.proj.mean}</div><div class="pl-sub">vs line ${line} · we estimate <b>${pctS(pr.over)}</b> over / <b>${pctS(pr.under)}</b> under · fair odds ${odds(M.toAmerican(pr.over))} / ${odds(M.toAmerican(pr.under))}${r.best ? ` · best bet: <b>${r.best.side} ${r.best.line} ${odds(r.best.price)}</b> at ${esc(r.best.book)} (EV <b style="color:${r.best.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${(r.best.ev * 100).toFixed(1)}%</b>)` : ""}</div></div>
+      ${r.confidence ? `<div class="conf-box"><div class="conf-head">${window.PropEdge.confBadge(r.confidence)}<span class="pl-sub">confidence in this ${r.best ? "bet" : "projection"}</span></div>${r.confidence.why.length ? `<ul class="conf-why">${r.confidence.why.map(w => `<li><b>−${w.pts}</b> ${esc(w.txt)}</li>`).join("")}</ul>` : `<div class="pl-sub">Nothing lowers confidence: steady role, enough games, a liquid market that broadly agrees.</div>`}</div>` : ""}
       <div class="factors">${r.proj.parts.map(x => `<div class="factor"><span>${esc(x.label)}</span><b class="${x.mult == null ? "" : x.mult >= 1 ? "up" : "down"}">${x.mult == null ? x.value : multTxt(x.mult)}</b></div>`).join("")}</div>
       <div class="pl-sub">Probability = ${Math.round((1 - window.PropModel.cfg(state.sport).empWeight) * 100)}% this projection (${{ count: "count", skew: "right-skewed", normal: "normal" }[r.proj.dist] || "normal"} distribution) + ${Math.round(window.PropModel.cfg(state.sport).empWeight * 100)}% the last-20 hit rate, recalibrated on past games. Betting EV also blends in the market's vig-free price (${Math.round(window.PropModel.cfg(state.sport).marketWeight * 100)}%).</div></div>`;
     // injuries

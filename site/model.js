@@ -196,9 +196,47 @@
       const pr = probabilities(p, stat, q.l, proj, league), mine = side === "over" ? pr.over : pr.under, mk = marketProb(q, side);
       const prob = mk == null ? mine : (1 - C.marketWeight) * mine + C.marketWeight * mk;
       const e = ev(prob, price);
-      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price) };
+      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null };
     }
-    return { proj, line, probs: base, best, fairOver: base ? toAmerican(base.over) : null, fairUnder: base ? toAmerican(base.under) : null };
+    return { proj, line, probs: base, best, confidence: confidence(p, stat, league, proj, best), fairOver: base ? toAmerican(base.over) : null, fairUnder: base ? toAmerican(base.under) : null };
+  }
+
+  /**
+   * Confidence in a prop's estimate, 0–100 with a grade and the reasons points came off.
+   * Penalty sizes follow the backtest's excess log loss (loss beyond what a perfectly calibrated
+   * forecast would have): a changing role and an early-season sample measurably hurt; minutes
+   * volatility and short histories a little; how far into the tail the line sits doesn't, so it
+   * isn't penalized. What a backtest can't see gets the biggest penalties: injury tags, teammate-out
+   * boosts, and on the market side (when `best` is given) no price, one-sided or thin markets,
+   * long shots, and big disagreement with the market (usually news the model doesn't have).
+   */
+  function confidence(p, stat, league, proj, best) {
+    if (!proj) return null;
+    const why = [], hit = (pts, txt) => { if (pts) why.push({ pts, txt }); };
+    const logs = p.logs || [], season = logs[0]?.season, cur = logs.filter(l => l.season === season).length;
+    hit(logs.length < 10 ? 20 : logs.length < 20 ? 5 : 0, `Only ${logs.length} games of history`);
+    if (logs.length >= 10) hit(cur < 5 ? 10 : 0, `${cur} game${cur === 1 ? "" : "s"} this season`);
+    const mins = logs.slice(0, 10).map(l => l.min).filter(m => m > 0);
+    if (mins.length >= 5) { const cv = sd(mins) / (mean(mins) || 1); hit(cv > 0.25 ? 5 : 0, `Minutes swing a lot (±${Math.round(cv * 100)}%)`); }
+    const part = k => proj.parts.filter(x => x.key === k).reduce((a, x) => a * x.mult, 1);
+    hit(Math.abs(part("minutes") - 1) > 0.06 ? 10 : 0, "Role is changing (minutes trend)");
+    hit(Math.abs(part("teammate") - 1) > 0.1 ? 10 : 0, "Leans on teammate-out boosts (not backtested)");
+    hit(part("blowout") !== 1 ? 5 : 0, "Blowout risk");
+    const inj = String(p.injury || "");
+    hit(/question|day|doubt|probable|gtd/i.test(inj) ? 20 : 0, `Player is ${inj.toLowerCase()}`);
+    const tq = (p.teammatesQuestionable || []).length; hit(Math.min(10, tq * 5), `${tq} teammate${tq === 1 ? "" : "s"} questionable`);
+    if (best !== undefined) {
+      if (!best) hit(15, "No price to compare with the market");
+      else {
+        hit(best.market == null ? 5 : 0, "One-sided market");
+        hit(best.vol != null && best.vol < 100 ? 10 : 0, `Thin market (${best.vol} contracts traded)`);
+        hit(best.price > 250 ? 10 : 0, "Long shot price");
+        const d = best.market == null ? 0 : Math.abs(best.model - best.market);
+        hit(Math.round(clamp((d - 0.05) * 120, 0, 35)), `Model and market disagree by ${Math.round(d * 100)} points`);
+      }
+    }
+    const score = clamp(100 - why.reduce((a, x) => a + x.pts, 0), 0, 100);
+    return { score, grade: score >= 75 ? "High" : score >= 50 ? "Medium" : "Low", why: why.sort((a, b) => b.pts - a.pts) };
   }
 
   /** How often two props hit together across games both players played (phi coefficient). */
@@ -228,6 +266,6 @@
     return { prob: pp, line: dl };
   }
 
-  const api = { PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
+  const api = { confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropModel = api;
 })(typeof window !== "undefined" ? window : globalThis);

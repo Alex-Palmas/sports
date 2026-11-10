@@ -85,7 +85,7 @@ function buildCases(league, sport) {
 function score(cases, league, over) {
   let ae = 0, n = 0, ll = 0, br = 0, m = 0, aeBase = 0, llEmp = 0, llMain = 0, nMain = 0, bias = 0;
   const bins = Array.from({ length: 10 }, () => ({ n: 0, p: 0, hit: 0 }));
-  const preds = [];
+  const preds = [], byConf = {};
   for (const c of cases) {
     const proj = M.project(c.p, c.stat, league, over); if (!proj) continue;
     ae += Math.abs(proj.mean - c.actual); n++;
@@ -94,13 +94,18 @@ function score(cases, league, over) {
       const pr = M.probabilities(c.p, c.stat, line, proj, league, over);
       const y = c.actual > line ? 1 : 0, q = Math.min(0.99, Math.max(0.01, pr.over));
       ll -= y ? Math.log(q) : Math.log(1 - q); br += (q - y) ** 2; m++;
-      if (line === c.main) { llMain -= y ? Math.log(q) : Math.log(1 - q); nMain++; bias += q - y; }
+      if (line === c.main) {
+        llMain -= y ? Math.log(q) : Math.log(1 - q); nMain++; bias += q - y;
+        const g = M.confidence ? M.confidence(c.p, c.stat, league, proj)?.grade : null;
+        if (g) { const b = (byConf[g] ||= { n: 0, ex: 0 }); b.n++; b.ex += -(y ? Math.log(q) : Math.log(1 - q)) + (q * Math.log(q) + (1 - q) * Math.log(1 - q)); }
+      }
       const e = Math.min(0.99, Math.max(0.01, pr.empirical)); llEmp -= y ? Math.log(e) : Math.log(1 - e);
       const b = bins[Math.min(9, Math.floor(q * 10))]; b.n++; b.p += q; b.hit += y;
       preds.push({ raw: pr.raw, y });
     }
   }
-  return { cases: n, props: m, mainLine: { props: nMain, logLoss: llMain / nMain, bias: bias / nMain }, mae: ae / n, maeL10: aeBase / n, logLoss: ll / m, logLossHitRate: llEmp / m, brier: br / m,
+  const confidence = Object.fromEntries(["High", "Medium", "Low"].filter(g => byConf[g]).map(g => { const b = byConf[g]; return [g, { props: b.n, excessLoss: +(b.ex / b.n).toFixed(4) }]; }));
+  return { cases: n, props: m, confidence, mainLine: { props: nMain, logLoss: llMain / nMain, bias: bias / nMain }, mae: ae / n, maeL10: aeBase / n, logLoss: ll / m, logLossHitRate: llEmp / m, brier: br / m,
     calibration: bins.filter(b => b.n).map((b, i) => ({ bin: `${i * 10}-${i * 10 + 10}%`, n: b.n, predicted: +(b.p / b.n).toFixed(3), actual: +(b.hit / b.n).toFixed(3) })), preds };
 }
 

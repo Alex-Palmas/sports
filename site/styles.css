@@ -509,6 +509,15 @@ tbody tr:hover{background:var(--panel2)}
 .echip{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--panel2);color:var(--muted)}
 .echip.good{background:var(--hit-soft);color:var(--hit)}.echip.bad{background:var(--miss-soft);color:var(--miss)}
 .echip.info{background:var(--accent-soft);color:var(--accent)}.echip.warn{background:rgba(245,184,61,.16);color:var(--amber)}
+.conf{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap;margin-top:3px;width:max-content}
+.conf i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.conf-high{background:var(--hit-soft);color:var(--hit)}
+.conf-medium{background:rgba(245,184,61,.16);color:var(--amber)}
+.conf-low{background:var(--miss-soft);color:var(--miss)}
+.kpi .conf{margin-top:6px}
+.conf-box{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0}
+.conf-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.conf-head .conf{margin:0}
+.conf-why{margin:8px 0 0;padding-left:18px;font-size:13px;color:var(--muted)}.conf-why li{margin:2px 0}.conf-why b{color:var(--text)}
 .er-num{display:flex;flex-direction:column;align-items:flex-end;gap:1px;text-align:right}
 .er-ev{font-family:var(--font-display);font-size:24px;font-weight:700;line-height:1.1}
 
