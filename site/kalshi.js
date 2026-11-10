@@ -66,6 +66,27 @@
     return { contracts: c, cost: +(c * price + takerFee(c, price)).toFixed(2), fee: takerFee(c, price) };
   }
 
+  // ---------------------------------------------------------------- links to kalshi.com (open the app on phones)
+  // series slugs as Kalshi uses them in page URLs (data.json carries a ready-made href; this is the fallback)
+  const SLUGS = { kxnbapts: "nba-player-points", kxnbareb: "nba-player-rebounds", kxnbaast: "nba-player-assists", kxnba3pt: "nba-player-threes",
+    kxnbapra: "nba-player-points-rebounds-assists", kxnbastl: "nba-player-steals", kxnbablk: "nba-player-blocks",
+    kxnflpassyds: "pro-football-passing-yards", kxnflrshyds: "pro-football-rushing-yards", kxnflrecyds: "pro-football-receiving-yards",
+    kxnflrec: "pro-football-player-receptions", kxnflanytd: "pro-football-anytime-touchdown", kxnhlpts: "pro-hockey-points",
+    kxnhlast: "pro-hockey-assists", kxnhlanygoal: "pro-hockey-goalscorer", kxnhlgoal: "nhl-goalscorer" };
+  /** kalshi.com page for a quote (or a bare market ticker). */
+  function href(q) {
+    if (q?.href) return q.href;
+    const tk = typeof q === "string" ? q : q?.tk || q?.ticker; if (!tk) return null;
+    const ev = String(tk).split("-").slice(0, 2).join("-").toLowerCase(), series = ev.split("-")[0];
+    return SLUGS[series] ? `https://kalshi.com/markets/${series}/${SLUGS[series]}/${ev}` : `https://kalshi.com/markets/${series}`;
+  }
+  const ICON = `<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>`;
+  /** An "Open in Kalshi" link. On a phone with the Kalshi app, the OS opens the app at this market. */
+  function link(q, text = "Open in Kalshi", cls = "chip kalshi-link") {
+    const u = href(q); if (!u) return "";
+    return `<a class="${cls}" href="${u.replace(/"/g, "&quot;")}" target="_blank" rel="noopener" data-kalshi-link>${text} ${ICON}</a>`;
+  }
+
   // ---------------------------------------------------------------- settings & storage (browser)
   const LS = "proplab:kalshi";
   const settings = () => { try { return { relay: "http://localhost:8787", maxOrder: 25, enabled: false, ...JSON.parse(localStorage.getItem(LS) || "{}") }; } catch { return { relay: "http://localhost:8787", maxOrder: 25, enabled: false }; } };
@@ -165,6 +186,7 @@
         <h2>Bet on Kalshi <span class="pl-sub">${esc(opts.p.name)} · ${esc(opts.label)}</span></h2>
         ${!s.enabled ? `<p class="pl-sub" style="color:var(--miss)">Order placement is off. Turn it on in Settings (and add your API key).</p>` : ""}
         <label>Pick <select id="koPick">${choices.map(([sd, qq], i) => `<option value="${i}"${i === sel ? " selected" : ""}>${sd === "over" ? "Over" : "Under"} ${qq.l} (${sd === "over" ? "YES" : "NO"} on ${esc(qq.tk)})</option>`).join("")}</select></label>
+        <div class="ko-open">${q ? link(q, "Open this market in Kalshi", "kalshi-link") : ""}</div>
         <div class="ko-live">${live ? `Live ask <b>${ask != null ? Math.round(ask * 100) + "¢" : "—"}</b>${moved ? ` <span style="color:${moved > 0 ? "var(--miss)" : "var(--hit)"}">(${moved > 0 ? "+" : ""}${Math.round(moved * 100)}¢ since the data refresh)</span>` : ""} · ${esc(live.status || "")}` : state === "loading" ? "Getting the live price…" : `Ask ${ask != null ? Math.round(ask * 100) + "¢" : "—"} at the last data refresh`}</div>
         <div class="tf-grid">
           <label>Stake up to ($) <input id="koStake" type="number" min="1" step="1" max="${esc(s.maxOrder)}" value="${esc(stake)}"/></label>
@@ -196,8 +218,8 @@
           const fee = r.average_fee_paid != null ? +r.average_fee_paid * filled : takerFee(filled, each);
           const cost = +(filled * each + fee).toFixed(2);
           root.PropBets?.addBet?.({ p: opts.p, sport: opts.sport, stat: opts.stat, label: opts.label, side, line: q.l, price: M.toAmerican(Math.min(0.99, cost / filled)),
-            book: "Kalshi", stake: cost, prob, real: { orderId: r.order_id, ticker: q.tk, contracts: filled, buy } });
-          $("#koMsg").innerHTML = `<b style="color:var(--hit)">Filled ${filled} contract${filled === 1 ? "" : "s"}</b> at ${Math.round(each * 100)}¢ (${usd(cost)} incl. fees). Added to My Bets.`;
+            book: "Kalshi", stake: cost, prob, real: { orderId: r.order_id, ticker: q.tk, href: href(q), contracts: filled, buy } });
+          $("#koMsg").innerHTML = `<b style="color:var(--hit)">Filled ${filled} contract${filled === 1 ? "" : "s"}</b> at ${Math.round(each * 100)}¢ (${usd(cost)} incl. fees). Added to My Bets. ${link(q, "See it in Kalshi", "kalshi-link")}`;
           $("#koCancel").textContent = "Done";
         } catch (er) { $("#koMsg").innerHTML = `<span style="color:var(--miss)">${esc(er.message)}</span>`; $("#koGo").disabled = false; }
       };
@@ -207,7 +229,7 @@
     render("loading"); dlg.showModal(); refresh();
   }
 
-  const api = { importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
+  const api = { href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
     ready: async () => settings().enabled && !!(await getCred()) };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropKalshi = api;
 })(typeof window !== "undefined" ? window : globalThis);

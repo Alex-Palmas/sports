@@ -265,7 +265,15 @@ async function fetchOdds() {
 // Prices are converted to American odds after Kalshi's taker fee (~0.07·p·(1-p) per contract).
 const KALSHI_API = "https://api.elections.kalshi.com/trade-api/v2";
 export const kalshiFee = p => Math.ceil(0.07 * p * (1 - p) * 100) / 100;
-export function parseKalshiMarket(sport, stat, m, quotes) {
+/** kalshi.com page for a market's event, e.g. https://kalshi.com/markets/kxnbapts/nba-player-points/kxnbapts-26nov10orlsac */
+export function kalshiHref(ticker, eventTicker, slug) {
+  const ev = (eventTicker || String(ticker || "").split("-").slice(0, 2).join("-")).toLowerCase(), series = ev.split("-")[0];
+  if (!series) return null;
+  return slug ? `https://kalshi.com/markets/${series}/${slug}/${ev}` : `https://kalshi.com/markets/${series}`;
+}
+const slugify = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+export function parseKalshiMarket(sport, stat, m, quotes, slug) {
   const ya = parseFloat(m.yes_ask_dollars), na = parseFloat(m.no_ask_dollars);
   if (!(ya > 0.03 && ya < 0.97 && na > 0.03 && na < 0.97)) return;      // no real two-sided market
   if (ya + na > 1.12) return;                                          // too thin / wide
@@ -276,17 +284,19 @@ export function parseKalshiMarket(sport, stat, m, quotes) {
     b: "Kalshi", k: "kalshi", l: line, o: toAmerican(ya + kalshiFee(ya)), u: toAmerican(na + kalshiFee(na)),
     t: m.expected_expiration_time || m.close_time, vol: Math.round(parseFloat(m.volume_fp || 0)),
     tk: m.ticker, ya: +ya.toFixed(4), na: +na.toFixed(4),   // market ticker + raw asks, for placing orders
+    href: kalshiHref(m.ticker, m.event_ticker, slug),        // the market's page on kalshi.com (opens the app on phones)
   });
 }
 
 async function fetchKalshi() {
   const quotes = {}; let n = 0;
   for (const [sport, cfg] of Object.entries(SPORTS)) for (const [series, stat] of Object.entries(cfg.kalshi || {})) {
-    let cursor = "";
+    let cursor = "", slug = null;
+    try { slug = slugify((await get(`${KALSHI_API}/series/${series}`))?.series?.title); } catch {}
     for (let page = 0; page < 20; page++) {
       const r = await get(`${KALSHI_API}/markets?series_ticker=${series}&status=open&limit=200${cursor ? `&cursor=${cursor}` : ""}`);
       await new Promise(res => setTimeout(res, 120)); // stay well under Kalshi's public rate limit
-      for (const m of r?.markets || []) { parseKalshiMarket(sport, stat, m, quotes); n++; }
+      for (const m of r?.markets || []) { parseKalshiMarket(sport, stat, m, quotes, slug); n++; }
       cursor = r?.cursor; if (!cursor) break;
     }
   }

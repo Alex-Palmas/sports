@@ -63,3 +63,19 @@ test("relay forwards signed requests to Kalshi, strips Origin, and refuses other
     assert.equal(seen.length, 1);
   } finally { relay.close(); mock.close(); }
 });
+
+test("links to the market's event page on kalshi.com", async () => {
+  const { kalshiHref, parseKalshiMarket } = await import("../scripts/fetch-data.mjs");
+  assert.equal(kalshiHref("KXNBAPTS-26NOV10ORLSAC-SACDSABONIS11-25", "KXNBAPTS-26NOV10ORLSAC", "nba-player-points"),
+    "https://kalshi.com/markets/kxnbapts/nba-player-points/kxnbapts-26nov10orlsac");
+  assert.equal(kalshiHref("KXNBAPTS-26NOV10ORLSAC-X-25", null, null), "https://kalshi.com/markets/kxnbapts");
+  const quotes = {};
+  parseKalshiMarket("nba", "pts", { ticker: "KXNBAPTS-26NOV10ORLSAC-SACDSABONIS11-25", event_ticker: "KXNBAPTS-26NOV10ORLSAC", title: "Domantas Sabonis: 25+ points",
+    yes_ask_dollars: "0.40", no_ask_dollars: "0.62", floor_strike: 24.5, strike_type: "greater" }, quotes, "nba-player-points");
+  const q = Object.values(quotes)[0][0];
+  assert.equal(q.href, "https://kalshi.com/markets/kxnbapts/nba-player-points/kxnbapts-26nov10orlsac");
+  // browser fallback from just the ticker
+  assert.equal(K.href({ tk: "KXNBAREB-26NOV10ORLSAC-X-7" }), "https://kalshi.com/markets/kxnbareb/nba-player-rebounds/kxnbareb-26nov10orlsac");
+  assert.equal(K.href({ href: "https://kalshi.com/x" }), "https://kalshi.com/x");
+  assert.match(K.link({ tk: "KXNBAPTS-A-B-1" }), /target="_blank" rel="noopener"/);
+});

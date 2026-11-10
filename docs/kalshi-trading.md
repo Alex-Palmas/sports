@@ -27,3 +27,7 @@ You have to tick the confirmation box for every order. Filled orders are added t
 - The private key is imported as a non-extractable WebCrypto key and stored in this browser's IndexedDB. The page can sign with it but can't read it back; the PEM text is never stored.
 - Anyone using this browser profile could place orders with it. Use a separate profile on shared devices, and remove the key in Settings when you're done. Kalshi API keys can trade but can't withdraw.
 - All `*.github.io` project pages of the same account share one browser origin. Only keep the key in a profile you use for this site.
+
+## Opening a bet in the Kalshi app
+
+Every Kalshi price links to its market page on kalshi.com (the game's event page, e.g. `kalshi.com/markets/kxnbapts/nba-player-points/kxnbapts-26nov10orlsac`, where every player and threshold for that game is listed). The links are on the prop page (**Open in Kalshi**), each Kalshi row in Line shopping, Edge Board picks priced on Kalshi, the order ticket, and real bets in My Bets. On a phone with the Kalshi app installed, the phone opens these kalshi.com links in the app; otherwise they open in the browser.
