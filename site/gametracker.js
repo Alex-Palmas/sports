@@ -154,5 +154,5 @@
     clearTimeout(timer);
     if (games.some(g => g.state === "in") || !scheduleOk) timer = setTimeout(() => { if (!el.hidden) render(el, rec); }, 60e3);
   }
-  window.PropGames = { render };
+  window.PropGames = { render, getLive: loadLive };
 })();

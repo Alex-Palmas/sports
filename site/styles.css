@@ -187,6 +187,8 @@ table.shop td.top{font-weight:800;color:var(--hit)}
 .lat-legend .tick-home,.lat-legend .tick-away,.lat-legend .tick-to{width:3px;height:10px;border-radius:1px}
 .lat-legend .tick-home{background:var(--accent)}.lat-legend .tick-away{background:var(--blue)}.lat-legend .tick-to{background:var(--amber)}
 .sim h2{margin:0 0 4px}
+.sim-replay summary{cursor:pointer;display:flex;gap:8px;flex-wrap:wrap;align-items:baseline}
+.sim-replay[open] summary{margin-bottom:8px}
 .sim-lede{margin:0 0 10px;max-width:760px}
 .sim-ctrls{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
 .sim-ctrls fieldset{border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:0;display:flex;flex-direction:column;gap:6px;min-width:0}

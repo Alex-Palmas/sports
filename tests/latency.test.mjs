@@ -145,3 +145,25 @@ test("sparkline samples the mid price over time", () => {
   assert.deepEqual(sp.v, [0.45, 0.65, 0.65]);
   assert.equal(sparkline([], 0, 100, 3), null);
 });
+
+import { PaperTrader, takerFee } from "../scripts/kalshi-latency.mjs";
+test("live paper trader: real-time lookups, settled hold, timed exit, skips", async () => {
+  const book = { A: [{ status: "active", yes_ask_dollars: "0.4500", yes_ask_size_fp: "6.00", yes_bid_dollars: "0.4300" }],
+                 B: [{ status: "active", yes_ask_dollars: "0.3000", yes_ask_size_fp: "100", yes_bid_dollars: "0.2800" }, { status: "active", yes_bid_dollars: "0.3800", yes_ask_dollars: "0.4000" }],
+                 C: [{ status: "active", yes_ask_dollars: "0.9500", yes_bid_dollars: "0.9300" }],
+                 D: [{ status: "closed", yes_ask_dollars: "0.9900" }] };
+  let clock = 1000;
+  const pt = new PaperTrader({ fetchMarket: async t => book[t].length > 1 ? book[t].shift() : book[t][0], now: () => clock, wait: async ms => { clock += ms; } });
+  const info = { league: "nba", game: "MIL @ NY", label: "x", playT: 0, seenT: 6000 };
+  const settled = await pt.enter("settled", "A", info);
+  assert.equal(settled.entry, 0.45); assert.equal(settled.qty, 6); // capped by the size offered
+  assert.equal(settled.pnl, +(6 * 0.55 - takerFee(0.45, 6)).toFixed(2)); assert.equal(settled.feedDelay, 6);
+  const rung = await pt.enter("rung", "B", info);
+  assert.equal(rung.entry, 0.30); assert.equal(rung.exit, 0.38); assert.equal(rung.qty, 10);
+  assert.equal(rung.pnl, +(10 * 0.08 - takerFee(0.30, 10) - takerFee(0.38, 10)).toFixed(2));
+  assert.equal(await pt.enter("gameline", "C", info), undefined);   // 95¢ > max price
+  assert.equal(await pt.enter("settled", "D", info), undefined);    // market already closed
+  const r = pt.report();
+  assert.equal(r.summary.trades, 2); assert.equal(r.skipped.tooExpensive, 1); assert.equal(r.skipped.noPrice, 1);
+  assert.equal(r.summary.pnl, +(settled.pnl + rung.pnl).toFixed(2));
+});
