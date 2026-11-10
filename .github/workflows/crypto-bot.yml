@@ -1,0 +1,55 @@
+name: Kalshi crypto bot (paper)
+
+# Paper-trades Kalshi's BTC/ETH hourly and 15-minute markets against live exchange prices.
+# Runs ~5h45m every 6 hours (crypto trades around the clock). While running it pushes a
+# snapshot to the `live-crypto` branch every 2 minutes for the app's Crypto Bot tab, and at the
+# end commits the session to site/crypto/ on main. It never places orders.
+on:
+  schedule:
+    - cron: "7 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: crypto-bot
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test
+        run: node --test
+      - name: Run the bot
+        env:
+          MAX_MINUTES: "340"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/crypto-bot.mjs &
+          BOT=$!
+          publish() {
+            [ -f site/crypto/live.json ] || return 0
+            tmp=$(mktemp -d); cp site/crypto/live.json "$tmp/crypto.json"
+            (cd "$tmp" && git init -q -b live-crypto && git add crypto.json \
+              && git -c user.name="github-actions[bot]" -c user.email="41898341+github-actions[bot]@users.noreply.github.com" commit -qm "Live crypto bot snapshot" \
+              && git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" live-crypto) || echo "live publish failed"
+            rm -rf "$tmp"
+          }
+          while kill -0 $BOT 2>/dev/null; do sleep 120; publish; done
+          wait $BOT
+      - name: Commit results
+        run: |
+          rm -f site/crypto/live.json
+          git add site/crypto
+          if git diff --cached --quiet; then echo "Nothing to commit."; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898341+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Crypto bot: $(date -u +%Y-%m-%d) session"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push -q origin HEAD:main && break; sleep 5; done

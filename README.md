@@ -68,6 +68,20 @@ LEAGUES=nba,nfl node scripts/kalshi-latency.mjs
 FEED=nba LEAGUES=nba node scripts/kalshi-latency.mjs
 ```
 
+## Crypto Bot
+`scripts/crypto-bot.mjs` paper-trades Kalshi's Bitcoin and Ethereum markets (hourly above/below, hourly ranges, 15-minute up/down). It never places orders.
+- **Prices:** the median of Coinbase, Kraken and Bitstamp, a stand-in for the CF Benchmarks index Kalshi settles on.
+- **Odds:** every market gets a probability from a lognormal model, adjusted for Kalshi's 60-second settlement average.
+- **Two strategies, tracked separately:**
+  - *Latency* uses the volatility Kalshi's own prices imply (learned while the price is calm), so it only finds an edge when BTC/ETH has just moved and Kalshi hasn't caught up.
+  - *Model* uses our own volatility estimate (median absolute deviation of 1-minute returns).
+- **Trading rules:** each strategy buys YES or NO when its probability beats Kalshi's price by 4¢+ after fees. 10 contracts, capped by the size offered; up to 5 positions per event; no new entries in the last 2 minutes. Positions are held to Kalshi's actual result.
+- **Also measured:**
+  - how fast Kalshi's at-the-money price catches up after sharp moves (≥ 15 bps in 10 seconds);
+  - accuracy (Brier score) of the model against Kalshi's own odds 5 minutes before each close.
+
+`.github/workflows/crypto-bot.yml` runs it for about 5h40m every 6 hours. While running it pushes a snapshot to the `live-crypto` branch every 2 minutes, which the app's **Crypto Bot** tab shows next to live Coinbase prices. Each session is committed to `site/crypto/`. Settings: `EDGE`, `QTY`, `MAX_PER_EVENT`, `JUMP_BPS`, `ASSETS`.
+
 ## Deploy
 `.github/workflows/pages.yml` fetches fresh data every 3 hours (and on every push to `main`) and publishes `site/` to GitHub Pages.
 One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.

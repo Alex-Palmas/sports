@@ -10,7 +10,7 @@ on:
         type: boolean
         default: false
   workflow_run:              # publish new latency-study recordings as soon as they're committed
-    workflows: ["Kalshi latency study"]
+    workflows: ["Kalshi latency study", "Kalshi crypto bot (paper)"]
     types: [completed]
   schedule:
     - cron: "17 */3 * * *"   # refresh ESPN stats & schedule every 3 hours
