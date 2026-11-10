@@ -9,6 +9,9 @@ on:
         description: "Spend The Odds API credits on this run"
         type: boolean
         default: false
+  workflow_run:              # publish new latency-study recordings as soon as they're committed
+    workflows: ["Kalshi latency study"]
+    types: [completed]
   schedule:
     - cron: "17 */3 * * *"   # refresh ESPN stats & schedule every 3 hours
     - cron: "41 15 * * *"    # daily (~10:41 ET): also refresh sportsbook lines
