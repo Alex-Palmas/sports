@@ -28,14 +28,13 @@
   if (typeof module !== "undefined" && module.exports) { module.exports = api; return; }
 
   // ---------------------------------------------------------------- browser
+  // An unlock lasts only for this browser session (tab), and is re-checked against a fresh access.json on
+  // every page load: changing the password, or bumping "epoch" (set-password.mjs --lock-all), locks every
+  // device on its next load. Until the check passes the app stays hidden.
   const SESSION = "proplab:unlocked";
-  const unlocked = (() => {
-    for (const st of [localStorage, sessionStorage]) {
-      try { const v = JSON.parse(st.getItem(SESSION) || "null"); if (v && (!v.exp || v.exp > Date.now())) return true; } catch {}
-    }
-    return false;
-  })();
   root.PROPLAB_NS = "proplab:";
+  document.documentElement.classList.add("auth-locked");
+  try { localStorage.removeItem(SESSION); } catch {}   // older builds could remember a device for 30 days
   // data saved under the short-lived per-account sign-in moves back to this device's storage
   try {
     const old = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (/^proplab:u:[^:]+:/.test(k)) old.push(k); }
@@ -43,13 +42,18 @@
     if (old.length) { localStorage.removeItem("proplab:session"); localStorage.removeItem("proplab:legacyClaimed"); }
   } catch {}
 
+  const fetchAccess = () => fetch(`access.json?t=${Date.now()}`, { cache: "no-store" }).then(r => r.ok ? r.json() : null);
+  const stamp = a => `${a.hash}|${a.epoch || 0}`;
+  const saved = () => { try { return JSON.parse(sessionStorage.getItem(SESSION) || "null"); } catch { return null; } };
+  let unlocked = false;
+
   function lock() {
-    try { localStorage.removeItem(SESSION); sessionStorage.removeItem(SESSION); } catch {}
+    try { sessionStorage.removeItem(SESSION); localStorage.removeItem(SESSION); } catch {}
     location.reload();
   }
+  const reveal = () => { unlocked = true; document.documentElement.classList.remove("auth-locked"); document.getElementById("loginScreen")?.remove(); };
 
-  function showGate() {
-    document.documentElement.classList.add("auth-locked");
+  function showGate(access, note) {
     const box = document.createElement("div");
     box.className = "login-screen"; box.id = "loginScreen";
     box.innerHTML = `<form class="login-card" id="loginForm">
@@ -57,32 +61,34 @@
       <h1>Enter password</h1>
       <p class="pl-sub">Player props, edges and game lines.</p>
       <label>Password <input id="loginPass" name="password" type="password" autocomplete="current-password" required/></label>
-      <label class="check"><input type="checkbox" id="loginKeep" checked/> Remember this device</label>
-      <div class="login-msg" id="loginMsg" role="alert"></div>
+      <div class="login-msg" id="loginMsg" role="alert">${note || ""}</div>
       <button class="login-btn" id="loginBtn" type="submit">Enter</button>
     </form>`;
-    const mount = () => { document.body.prepend(box); setTimeout(() => box.querySelector("#loginPass").focus(), 50); };
+    const mount = () => { document.getElementById("loginScreen")?.remove(); document.body.prepend(box); setTimeout(() => box.querySelector("#loginPass").focus(), 50); };
     document.body ? mount() : document.addEventListener("DOMContentLoaded", mount);
-    let fails = 0, access = null;
-    const load = () => access || (access = fetch("access.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).catch(() => null));
-    load();
+    let fails = 0;
     box.addEventListener("submit", async e => {
       e.preventDefault();
       const msg = box.querySelector("#loginMsg"), btn = box.querySelector("#loginBtn");
       btn.disabled = true; btn.textContent = "Checking…"; msg.textContent = "";
-      const a = await load();
+      const a = access || (access = await fetchAccess().catch(() => null));
       if (!(await verify(a, box.querySelector("#loginPass").value))) {
         fails++;
         await new Promise(r => setTimeout(r, Math.min(8000, 400 * 2 ** fails)));   // slow down repeated guesses
-        msg.textContent = a ? "Wrong password." : "No password is set up yet.";
+        msg.textContent = a ? "Wrong password." : "Couldn't check the password. Check your connection and try again.";
         btn.disabled = false; btn.textContent = "Enter"; box.querySelector("#loginPass").select(); return;
       }
-      const keep = box.querySelector("#loginKeep").checked;
-      try { (keep ? localStorage : sessionStorage).setItem(SESSION, JSON.stringify({ at: Date.now(), exp: keep ? Date.now() + 30 * 86400e3 : null })); } catch {}
-      location.reload();
+      try { sessionStorage.setItem(SESSION, JSON.stringify({ at: Date.now(), stamp: stamp(a) })); } catch {}
+      reveal();
     });
   }
 
-  if (!unlocked) showGate();
+  // every load: check the session against the current password file before showing anything
+  fetchAccess().then(a => {
+    const s = saved();
+    if (a && s && s.stamp === stamp(a)) reveal();
+    else { if (s) try { sessionStorage.removeItem(SESSION); } catch {} showGate(a, s && a ? "The site was locked. Enter the password again." : ""); }
+  }).catch(() => showGate(null, ""));
+
   root.PropAuth = { ...api, unlocked: () => unlocked, lock };
 })(typeof window !== "undefined" ? window : globalThis);

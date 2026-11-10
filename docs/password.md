@@ -1,6 +1,6 @@
 # Site password
 
-PropLab asks for a password before showing the app. Enter the right one and the device stays unlocked for 30 days ("Remember this device"), or until the browser closes if you untick it. **Lock** in Settings (⚙) locks it again.
+PropLab asks for a password before showing the app. An unlock lasts only for that browser tab/session; **Lock** in Settings (⚙) locks it right away. Every page load re-checks against the current password file, so you can lock everyone out at any time (below).
 
 ## Changing the password
 
@@ -9,7 +9,15 @@ node scripts/set-password.mjs                  # generates a strong password and
 node scripts/set-password.mjs 'my passphrase'  # or choose your own (10+ characters)
 ```
 
-Then commit `site/access.json` and push; the site uses it after the next deploy. Only a salted PBKDF2-SHA256 hash (310,000 iterations) is stored, never the password. Devices that are already unlocked stay unlocked until they press Lock.
+Then commit `site/access.json` and push; the site uses it after the next deploy. Only a salted PBKDF2-SHA256 hash (310,000 iterations) is stored, never the password.
+
+## Locking every device
+
+```sh
+node scripts/set-password.mjs --lock-all   # same password, but everyone has to enter it again
+```
+
+Commit and push `site/access.json`. Changing the password does the same. Each device checks on its next page load (GitHub Pages can keep serving the previous page for up to ~10 minutes after a deploy).
 
 ## What this protects (and what it doesn't)
 

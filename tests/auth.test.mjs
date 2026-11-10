@@ -16,5 +16,6 @@ test("password gate: the browser's PBKDF2 check matches set-password's hash", as
 
 test("access.json holds only a salted hash", () => {
   const a = JSON.parse(readFileSync(new URL("../site/access.json", import.meta.url), "utf8"));
-  assert.deepEqual(Object.keys(a).sort(), ["hash", "iter", "salt", "set"]); assert.ok(a.iter >= 300000);
+  for (const k of ["hash", "iter", "salt"]) assert.ok(a[k] != null, k);
+  assert.ok(Object.keys(a).every(k => ["hash", "iter", "salt", "set", "epoch", "locked"].includes(k))); assert.ok(a.iter >= 300000);
 });
