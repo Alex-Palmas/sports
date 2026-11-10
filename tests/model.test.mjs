@@ -29,7 +29,7 @@ test("projection: recent form, teammate out, matchup and blowout factors", () =>
   const keys = full.parts.map(x => x.key);
   assert.ok(keys.includes("matchup") && keys.includes("teammate") && keys.includes("blowout"));
   assert.ok(full.mean > base.mean, "soft matchup + teammate out outweigh blowout risk");
-  assert.equal(full.dist, "normal");
+  assert.equal(full.dist, "skew");
 });
 
 test("probabilities blend model and history; best bet across quotes", () => {
@@ -59,4 +59,20 @@ test("bet settlement and closing-line value", () => {
   assert.equal(M.settle(bet, []), null);
   const c = M.clv({ ...bet, close: { price: -130, line: 25.5 } });
   assert.ok(c.prob > 0); assert.equal(c.line, 1);
+});
+
+test("negative binomial: matches Poisson at equal variance, survives large means, skews right", () => {
+  assert.ok(Math.abs(M.countCdf(3, 2, 2) - M.poissonCdf(3, 2)) < 1e-12);
+  const c = M.countCdf(250, 250, 70 * 70); // passing yards
+  assert.ok(c > 0.45 && c < 0.6, String(c));
+  // right skew: P(X > mean) under 50% for a wide count distribution
+  assert.ok(1 - M.countCdf(25, 25, 100) < 0.5);
+});
+
+test("fitted settings stay inside sane bounds", () => {
+  for (const lg of ["nba", "nfl", "nhl"]) {
+    const c = M.cfg(lg);
+    assert.ok(c.calA > 0.7 && c.calA < 1.3); assert.ok(c.marketWeight >= 0 && c.marketWeight <= 1);
+    assert.ok(c.halfLife >= 3 && c.empWeight >= 0 && c.empWeight <= 0.5);
+  }
 });

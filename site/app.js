@@ -4,6 +4,9 @@
     const r = await fetch("data.json", { cache: "no-cache" });
     if (r.ok) { const d = await r.json(); if (d && d.sports) { DATA = d; LIVE = true; } }
   } catch {}
+  // once enough live picks are graded, weight the market by what has actually scored best
+  for (const [lg, t] of Object.entries(DATA.modelTrack || {}))
+    if (t.n >= 300 && t.blend?.marketWeight != null && window.PropModel?.PARAMS) (window.PropModel.PARAMS[lg] ||= {}).marketWeight = Math.min(0.9, Math.max(0.3, t.blend.marketWeight));
   const $ = s => document.querySelector(s);
   const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); Object.assign(e, attrs); if (html) e.innerHTML = html; return e; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -287,7 +290,7 @@
     const proj = `<div class="card"><h2>Projection <span class="pl-sub">${esc(statL)}</span></h2>
       <div class="proj-top"><div class="proj-num">${r.proj.mean}</div><div class="pl-sub">vs line ${line} · we estimate <b>${pctS(pr.over)}</b> over / <b>${pctS(pr.under)}</b> under · fair odds ${odds(M.toAmerican(pr.over))} / ${odds(M.toAmerican(pr.under))}${r.best ? ` · best bet: <b>${r.best.side} ${r.best.line} ${odds(r.best.price)}</b> at ${esc(r.best.book)} (EV <b style="color:${r.best.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${(r.best.ev * 100).toFixed(1)}%</b>)` : ""}</div></div>
       <div class="factors">${r.proj.parts.map(x => `<div class="factor"><span>${esc(x.label)}</span><b class="${x.mult == null ? "" : x.mult >= 1 ? "up" : "down"}">${x.mult == null ? x.value : multTxt(x.mult)}</b></div>`).join("")}</div>
-      <div class="pl-sub">Probability = 75% this projection (${r.proj.dist === "poisson" ? "Poisson" : "normal"} distribution) + 25% the last-20 hit rate. Betting EV also blends in the market's vig-free price.</div></div>`;
+      <div class="pl-sub">Probability = ${Math.round((1 - window.PropModel.cfg(state.sport).empWeight) * 100)}% this projection (${{ count: "count", skew: "right-skewed", normal: "normal" }[r.proj.dist] || "normal"} distribution) + ${Math.round(window.PropModel.cfg(state.sport).empWeight * 100)}% the last-20 hit rate, recalibrated on past games. Betting EV also blends in the market's vig-free price (${Math.round(window.PropModel.cfg(state.sport).marketWeight * 100)}%).</div></div>`;
     // injuries
     const ww = (p.withWithout || []);
     const inj = ww.length || p.teammatesQuestionable?.length ? `<div class="card"><h2>Teammates out <span class="pl-sub">tonight's injury report</span></h2>

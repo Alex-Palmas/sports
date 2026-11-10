@@ -39,49 +39,92 @@
   }
 
   /** Exponentially weighted mean (newest first), half-life in games. */
-  function ewMean(vals, halfLife = 8) { let w = 1, sw = 0, s = 0; const k = Math.pow(0.5, 1 / halfLife); for (const v of vals) { s += v * w; sw += w; w *= k; } return sw ? s / sw : 0; }
+  function ewMean(vals, halfLife = 8, extra) { let w = 1, sw = 0, s = 0; const k = Math.pow(0.5, 1 / halfLife); vals.forEach((v, i) => { const x = extra ? extra[i] : 1; s += v * w * x; sw += w * x; w *= k; }); return sw ? s / sw : 0; }
 
-  const COUNT_STATS = new Set(["fg3", "stl", "blk", "td", "pass_td", "rec", "sog", "g", "ast", "pts_nhl", "hits", "tb", "rbi", "runs", "hr", "so"]);
+  const COUNT_STATS = new Set(["fg3", "stl", "blk", "td", "pass_td", "rec", "sog", "g", "ast", "hits", "tb", "rbi", "runs", "hr", "so", "reb"]);
+
+  /**
+   * Tunable settings, fitted per league by scripts/backtest-model.mjs (replaying every past game
+   * with only the games before it). DEFAULT applies where a league has no fitted values.
+   */
+  const DEFAULT = {
+    halfLife: 8, window: 30,       // recency weighting of recent form
+    prevSeason: 1,                 // extra weight on last season's games (<1 favors this season)
+    longShrink: 0.2,               // pull recent form toward the player's longer-term average
+    minutesWeight: 1,              // how much of the minutes trend to apply
+    dvpWeight: 0.6, venueWeight: 0.3, restWeight: 0.5, b2b: 0.97, teammateWeight: 0.7,
+    sdShrink: 0.5, cv: 0.35,       // spread: player's own sd blended with cv × mean
+    countDisp: 1.2,                // count stats: variance = mean × countDisp (negative binomial)
+    skew: 1,                       // 1: yardage/points use a right-skewed (negative binomial) curve, 0: normal
+    empWeight: 0.25,               // blend with the smoothed last-20 hit rate
+    calA: 1, calB: 0,              // final logistic recalibration: logit(p') = calA·logit(p) + calB
+    marketWeight: 0.65,            // EV: weight on the market's vig-free price vs ours. The market sees news and
+                                   // minutes we can't, so it starts above half; the live ledger refits it.
+  };
+  // fitted by `node scripts/backtest-model.mjs --tune` (see site/model-report.json)
+  const PARAMS = {
+    nba: { restWeight: 0, cv: 0.45 },
+    nfl: { halfLife: 3, venueWeight: 0, cv: 0.7, empWeight: 0.4 },
+    nhl: { halfLife: 12, longShrink: 0.35, dvpWeight: 0, sdShrink: 0.75, countDisp: 1.1, empWeight: 0.1 },
+    mlb: {},
+  };
+  const cfg = (league, over) => ({ ...DEFAULT, ...(PARAMS[league] || {}), ...(over || {}) });
+
+  // negative binomial P(X ≤ k) with mean mu and variance v (> mu); Poisson when v ≤ mu
+  function countCdf(k, mu, v) {
+    if (k < 0) return 0;
+    if (!(v > mu * 1.0001)) return poissonCdf(k, mu);
+    const r = mu * mu / (v - mu), p = r / (r + mu); // success prob
+    // log space so large means (passing yards) don't underflow
+    let lt = r * Math.log(p), sum = Math.exp(lt); const lq = Math.log(1 - p);
+    for (let i = 1; i <= k; i++) { lt += Math.log((i - 1 + r) / i) + lq; sum += Math.exp(lt); }
+    return Math.min(1, sum);
+  }
 
   /**
    * Projection for one player/stat with an explained breakdown.
-   * Factors (each a multiplier, shrunk by sample size): recent form (weighted mean), minutes
-   * trend, defense vs. position, home/away, rest, teammates out, blowout risk.
+   * Factors (each a multiplier, shrunk by sample size): recent form (weighted mean, regressed
+   * toward the longer-term average), minutes trend, defense vs. position, home/away, rest,
+   * teammates out, blowout risk. `over` replaces settings (used by the backtest).
    */
-  function project(p, stat, league) {
-    const logs = (p.logs || []).slice(0, 30);
+  function project(p, stat, league, over) {
+    const C = cfg(league, over);
+    const all = (p.logs || []).map(l => l.stats?.[stat] ?? 0);
+    const logs = (p.logs || []).slice(0, C.window);
     const vals = logs.map(l => l.stats?.[stat] ?? 0);
     if (!vals.length) return null;
     const parts = [];
-    let mu = ewMean(vals);
+    const season = logs[0]?.season, sw = logs.map(l => l.season === season ? 1 : C.prevSeason);
+    const ew = ewMean(vals, C.halfLife, sw), longAvg = mean(all);
+    let mu = (1 - C.longShrink) * ew + C.longShrink * longAvg;
     const form = mu;
-    parts.push({ key: "form", label: "Recent form (weighted toward the last ~8 games)", value: +mu.toFixed(2) });
+    parts.push({ key: "form", label: `Recent form (weighted toward the last ~${Math.round(C.halfLife)} games, regressed ${Math.round(C.longShrink * 100)}% to his ${all.length}-game average)`, value: +mu.toFixed(2) });
     // minutes trend: per-minute rate × projected minutes
     const mins = logs.map(l => l.min).filter(m => m != null && m > 0);
-    if (mins.length >= 5) {
-      const l5 = mean(mins.slice(0, 5)), l20 = mean(mins.slice(0, 20)), ewm = ewMean(mins);
-      const proj = 0.6 * l5 + 0.4 * l20, mult = clamp(proj / Math.max(ewm, 1), 0.8, 1.2);
+    if (mins.length >= 5 && C.minutesWeight) {
+      const l5 = mean(mins.slice(0, 5)), l20 = mean(mins.slice(0, 20)), ewm = ewMean(mins, C.halfLife);
+      const proj = 0.6 * l5 + 0.4 * l20, mult = clamp(1 + (proj / Math.max(ewm, 1) - 1) * C.minutesWeight, 0.8, 1.2);
       if (Math.abs(mult - 1) > 0.005) { mu *= mult; parts.push({ key: "minutes", label: `Minutes trend (${l5.toFixed(1)} last 5 vs ${l20.toFixed(1)} last 20)`, mult }); }
     }
     // defense vs. position
     const f = p.dvp?.factor?.[stat], n = p.dvp?.n?.[stat] || 0;
-    if (f) { const mult = clamp(1 + (f - 1) * Math.min(1, n / 40) * 0.6, 0.85, 1.15); mu *= mult; parts.push({ key: "matchup", label: `${p.opp} vs ${p.dvp.group}s (rank ${p.dvp.rank?.[stat]}/${p.dvp.of})`, mult }); }
+    if (f && C.dvpWeight) { const mult = clamp(1 + (f - 1) * Math.min(1, n / 40) * C.dvpWeight, 0.85, 1.15); if (Math.abs(mult - 1) > 0.002) { mu *= mult; parts.push({ key: "matchup", label: `${p.opp} vs ${p.dvp.group}s (rank ${p.dvp.rank?.[stat]}/${p.dvp.of})`, mult }); } }
     // home/away
     const home = logs.filter(l => l.home), away = logs.filter(l => !l.home);
-    if (home.length >= 5 && away.length >= 5) {
-      const all = mean(vals) || 1, side = mean((p.home ? home : away).map(l => l.stats?.[stat] ?? 0));
-      const mult = clamp(1 + (side / all - 1) * 0.3, 0.92, 1.08);
+    if (home.length >= 5 && away.length >= 5 && C.venueWeight) {
+      const avgAll = mean(vals) || 1, side = mean((p.home ? home : away).map(l => l.stats?.[stat] ?? 0));
+      const mult = clamp(1 + (side / avgAll - 1) * C.venueWeight, 0.92, 1.08);
       if (Math.abs(mult - 1) > 0.005) { mu *= mult; parts.push({ key: "venue", label: p.home ? "At home" : "On the road", mult }); }
     }
     // rest
     if (p.restDays === 0) {
-      const r = restSplits(logs, stat, 0).b2b, all = mean(vals) || 1;
-      const mult = r.n >= 3 ? clamp(1 + (r.avg / all - 1) * 0.5, 0.85, 1.1) : (league === "nba" ? 0.97 : 1);
-      if (mult !== 1) { mu *= mult; parts.push({ key: "rest", label: `Back-to-back${r.n >= 3 ? ` (${r.n} past B2Bs)` : ""}`, mult }); }
+      const r = restSplits(logs, stat, 0).b2b, avgAll = mean(vals) || 1;
+      const mult = r.n >= 3 ? clamp(1 + (r.avg / avgAll - 1) * C.restWeight, 0.85, 1.1) : (league === "nba" ? C.b2b : 1);
+      if (Math.abs(mult - 1) > 0.001) { mu *= mult; parts.push({ key: "rest", label: `Back-to-back${r.n >= 3 ? ` (${r.n} past B2Bs)` : ""}`, mult }); }
     }
     // Teammates out tonight. Recent form already includes the games they missed, so only the
     // share of form that came from games WITH them gets adjusted; effects combine with a cap.
-    const ewWeights = logs.map((_, i) => Math.pow(Math.pow(0.5, 1 / 8), i)), wsum = ewWeights.reduce((a, b) => a + b, 0) || 1;
+    const kk = Math.pow(0.5, 1 / C.halfLife), ewWeights = logs.map((_, i) => Math.pow(kk, i)), wsum = ewWeights.reduce((a, b) => a + b, 0) || 1;
     let tm = 1;
     for (const t of p.withWithout || []) {
       const w = t.avgWith?.[stat], wo = t.avgWithout?.[stat];
@@ -89,7 +132,7 @@
       const missed = new Set(t.datesWithout || []);
       const shareWith = logs.reduce((a, l, i) => a + (missed.has(l.date) ? 0 : ewWeights[i]), 0) / wsum;
       const ratio = clamp(wo / w, 0.6, 1.6);
-      const mult = 1 + (ratio - 1) * shareWith * Math.min(1, t.gamesWithout / 8) * 0.7;
+      const mult = 1 + (ratio - 1) * shareWith * Math.min(1, t.gamesWithout / 8) * C.teammateWeight;
       if (Math.abs(mult - 1) > 0.005) { tm *= mult; parts.push({ key: "teammate", label: `${t.teammate} ${String(t.status || "out").toLowerCase()} (${t.gamesWithout} games without)`, mult }); }
     }
     if (tm !== 1) { const capped = clamp(tm, 0.85, 1.25); mu *= capped; if (capped !== tm) parts.push({ key: "cap", label: "Teammate effects capped", mult: capped / tm }); }
@@ -100,23 +143,35 @@
     // keep the projection within a sane band of recent form
     const bounded = clamp(mu, form * 0.75, form * 1.35 + 0.3);
     if (Math.abs(bounded - mu) > 1e-9) { parts.push({ key: "cap", label: "Total adjustment capped", mult: bounded / mu }); mu = bounded; }
-    const recent = vals.slice(0, 20);
-    const dist = mu < 6 && (COUNT_STATS.has(stat) || mu < 3) ? "poisson" : "normal";
-    return { mean: +mu.toFixed(2), sd: +sd(recent).toFixed(2), dist, parts };
+    // spread of outcomes: the player's own (last 20) blended with a typical spread for this mean
+    const recent = vals.slice(0, 20), psd = sd(recent);
+    const sdv = recent.length >= 8 ? (1 - C.sdShrink) * psd + C.sdShrink * C.cv * Math.max(mu, 0.5) : C.cv * Math.max(mu, 0.5);
+    const dist = COUNT_STATS.has(stat) && mu < 12 ? "count" : C.skew ? "skew" : "normal";
+    const varCount = Math.max(mu * C.countDisp, recent.length >= 8 ? (1 - C.sdShrink) * psd * psd + C.sdShrink * mu * C.countDisp : 0);
+    return { mean: +mu.toFixed(3), sd: +sdv.toFixed(3), var: +varCount.toFixed(3), dist, parts };
   }
 
+  const logit = p => Math.log(p / (1 - p)), sigmoid = x => 1 / (1 + Math.exp(-x));
+  /** Model-only P(stat > line). */
+  function modelOver(proj, line) {
+    if (proj.dist === "count") return 1 - countCdf(Math.floor(line), Math.max(proj.mean, 0.01), proj.var);
+    if (proj.dist === "skew" && proj.mean > 0.5) return 1 - countCdf(Math.floor(line), proj.mean, Math.max(proj.sd * proj.sd, proj.mean * 1.05));
+    return probOver(proj.mean, proj.sd, line, "normal");
+  }
   /**
-   * Probability of over/under at a line: 75% model, 25% the player's smoothed last-20 hit rate,
-   * so a projection can't drift far from what actually happened.
+   * Probability of over/under at a line: the model's distribution, blended with the player's
+   * smoothed last-20 hit rate, then passed through the fitted calibration.
    */
-  function probabilities(p, stat, line, proj) {
+  function probabilities(p, stat, line, proj, league, over) {
     if (!proj) return null;
-    const pm = probOver(proj.mean, proj.sd, line, proj.dist);
+    const C = cfg(league, over);
+    const pm = modelOver(proj, line);
     const lg = (p.logs || []).slice(0, 20), h = lg.filter(l => (l.stats?.[stat] ?? 0) > line).length;
     const emp = (h + 1) / (lg.length + 2);
-    const over = clamp(0.75 * pm + 0.25 * emp, 0.01, 0.99);
+    const raw = clamp((1 - C.empWeight) * pm + C.empWeight * emp, 0.005, 0.995);
+    const over_ = clamp(sigmoid(C.calA * logit(raw) + C.calB), 0.01, 0.99);
     const push = Number.isInteger(line) ? lg.filter(l => l.stats?.[stat] === line).length / Math.max(lg.length, 1) : 0;
-    return { over, under: clamp(1 - over - push, 0.01, 0.99), model: pm, empirical: emp };
+    return { over: over_, under: clamp(1 - over_ - push, 0.01, 0.99), model: pm, empirical: emp, raw };
   }
 
   /** The market's own vig-free probability for a quote's side. */
@@ -127,19 +182,19 @@
   }
   /**
    * Best EV quote across books/Kalshi for a player/stat (each quote at its own line).
-   * Our probability is blended 50/50 with the market's vig-free price at that line, so the
+   * Our probability is blended with the market's vig-free price at that line (marketWeight), so the
    * model has to disagree with the market by a lot before it calls an edge, and long shots
    * (beyond ±400) aren't ranked: that's where small-sample models are least reliable.
    */
   function bestBet(p, stat, league) {
-    const proj = project(p, stat, league); if (!proj) return null;
+    const C = cfg(league), proj = project(p, stat, league); if (!proj) return null;
     const line = p.lines?.[stat];
-    const base = probabilities(p, stat, line, proj);
+    const base = probabilities(p, stat, line, proj, league);
     let best = null;
     for (const q of p.market?.[stat] || []) for (const side of ["over", "under"]) {
       const price = side === "over" ? q.o : q.u; if (price == null || price > 400 || price < -400) continue;
-      const pr = probabilities(p, stat, q.l, proj), mine = side === "over" ? pr.over : pr.under, mk = marketProb(q, side);
-      const prob = mk == null ? mine : 0.5 * mine + 0.5 * mk;
+      const pr = probabilities(p, stat, q.l, proj, league), mine = side === "over" ? pr.over : pr.under, mk = marketProb(q, side);
+      const prob = mk == null ? mine : (1 - C.marketWeight) * mine + C.marketWeight * mk;
       const e = ev(prob, price);
       if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price) };
     }
@@ -173,6 +228,6 @@
     return { prob: pp, line: dl };
   }
 
-  const api = { marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
+  const api = { PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropModel = api;
 })(typeof window !== "undefined" ? window : globalThis);
