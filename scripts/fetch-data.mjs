@@ -495,6 +495,14 @@ export function applyHistory(out, history, now = Date.now()) {
  * result, the pick is graded. Per league we publish how each did (log loss, Brier) and the
  * market weight that would have scored best, which the app then uses for EV once enough are in.
  */
+/** Flat 1-unit results of the Edge Board's positive-EV picks, overall and by confidence grade. */
+export function betSummary(bets) {
+  const one = a => { const pnl = a.reduce((s, x) => s + (x.bet.won ? (x.bet.price > 0 ? x.bet.price / 100 : 100 / -x.bet.price) : -1), 0);
+    return { n: a.length, won: a.filter(x => x.bet.won).length, roi: a.length ? +(pnl / a.length).toFixed(4) : null, expected: a.length ? +(a.reduce((s, x) => s + x.bet.ev, 0) / a.length).toFixed(4) : null }; };
+  const by = {}; for (const x of bets) (by[x.grade || "?"] ||= []).push(x);
+  return { all: one(bets), byGrade: Object.fromEntries(Object.entries(by).map(([k, a]) => [k, one(a)])) };
+}
+
 export function applyTrack(out, track, now = Date.now(), M = PropModel) {
   track.picks ||= {};
   const keep = now - 120 * 86400e3, logsById = {};
@@ -507,15 +515,21 @@ export function applyTrack(out, track, now = Date.now(), M = PropModel) {
       if (!q || Number.isInteger(line)) continue;
       const proj = M.project(p, stat, lg); if (!proj) continue;
       const pr = M.probabilities(p, stat, line, proj, lg);
-      const conf = M.bestBet ? M.bestBet(p, stat, lg)?.confidence : null;
-      track.picks[`${lg}|${p.espnId}|${stat}|${day}`] = { lg, id: p.espnId, stat, day, line, model: +pr.over.toFixed(4), market: +M.marketProb(q, "over").toFixed(4), book: q.b, grade: conf?.grade || null };
+      const bb = M.bestBet ? M.bestBet(p, stat, lg) : null, conf = bb?.confidence, b = bb?.best;
+      track.picks[`${lg}|${p.espnId}|${stat}|${day}`] = { lg, id: p.espnId, stat, day, line, model: +pr.over.toFixed(4), market: +M.marketProb(q, "over").toFixed(4), book: q.b,
+        grade: conf?.grade || null, score: conf?.score ?? null, codes: (conf?.why || []).map(w => w.code).filter(Boolean),
+        // the Edge Board's pick for this prop (any line/book), graded on its own line
+        bet: b ? { side: b.side, line: b.line, price: b.price, book: b.book, prob: +b.prob.toFixed(4), model: +b.model.toFixed(4), market: b.market == null ? null : +b.market.toFixed(4), ev: +b.ev.toFixed(4) } : null };
     }
   }
   for (const [k, x] of Object.entries(track.picks)) {
     if (Date.parse(x.day) < keep) { delete track.picks[k]; continue; }
     if (x.y != null) continue;
     const l = (logsById[`${x.lg}|${x.id}`] || []).find(g => g.date === x.day);
-    if (l && l.stats?.[x.stat] != null) { x.actual = l.stats[x.stat]; x.y = x.actual > x.line ? 1 : 0; }
+    if (l && l.stats?.[x.stat] != null) {
+      x.actual = l.stats[x.stat]; x.y = x.actual > x.line ? 1 : 0;
+      if (x.bet) { const v = x.actual, bl = x.bet.line; x.bet.won = v === bl ? null : (x.bet.side === "over" ? v > bl : v < bl) ? 1 : 0; }
+    }
   }
   const ll = (q, y) => -Math.log(y ? Math.max(q, 0.01) : Math.max(1 - q, 0.01));
   const summary = {};
@@ -530,7 +544,8 @@ export function applyTrack(out, track, now = Date.now(), M = PropModel) {
       market: { logLoss: avg(x => ll(x.market, x.y)), brier: avg(x => (x.market - x.y) ** 2) },
       blend: { marketWeight: bestW, logLoss: bestLL },
       byGrade: Object.fromEntries(["High", "Medium", "Low"].map(gr => [gr, g.filter(x => x.grade === gr)]).filter(([, a]) => a.length).map(([gr, a]) => [gr, {
-        n: a.length, model: +(a.reduce((s, x) => s + ll(x.model, x.y), 0) / a.length).toFixed(4), market: +(a.reduce((s, x) => s + ll(x.market, x.y), 0) / a.length).toFixed(4) }])) };
+        n: a.length, model: +(a.reduce((s, x) => s + ll(x.model, x.y), 0) / a.length).toFixed(4), market: +(a.reduce((s, x) => s + ll(x.market, x.y), 0) / a.length).toFixed(4) }])),
+      bets: betSummary(g.filter(x => x.bet && x.bet.won != null && x.bet.ev > 0)) };
   }
   out.modelTrack = summary;
   return summary;

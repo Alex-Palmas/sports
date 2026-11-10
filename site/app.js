@@ -4,9 +4,6 @@
     const r = await fetch("data.json", { cache: "no-cache" });
     if (r.ok) { const d = await r.json(); if (d && d.sports) { DATA = d; LIVE = true; } }
   } catch {}
-  // once enough live picks are graded, weight the market by what has actually scored best
-  for (const [lg, t] of Object.entries(DATA.modelTrack || {}))
-    if (t.n >= 300 && t.blend?.marketWeight != null && window.PropModel?.PARAMS) (window.PropModel.PARAMS[lg] ||= {}).marketWeight = Math.min(0.9, Math.max(0.3, t.blend.marketWeight));
   const $ = s => document.querySelector(s);
   const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); Object.assign(e, attrs); if (html) e.innerHTML = html; return e; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));

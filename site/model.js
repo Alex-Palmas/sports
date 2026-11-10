@@ -212,27 +212,27 @@
    */
   function confidence(p, stat, league, proj, best) {
     if (!proj) return null;
-    const why = [], hit = (pts, txt) => { if (pts) why.push({ pts, txt }); };
+    const why = [], hit = (pts, txt, code) => { if (pts) why.push({ pts, txt, code }); };
     const logs = p.logs || [], season = logs[0]?.season, cur = logs.filter(l => l.season === season).length;
-    hit(logs.length < 10 ? 20 : logs.length < 20 ? 5 : 0, `Only ${logs.length} games of history`);
-    if (logs.length >= 10) hit(cur < 5 ? 10 : 0, `${cur} game${cur === 1 ? "" : "s"} this season`);
+    hit(logs.length < 10 ? 20 : logs.length < 20 ? 5 : 0, `Only ${logs.length} games of history`, "hist");
+    if (logs.length >= 10) hit(cur < 5 ? 10 : 0, `${cur} game${cur === 1 ? "" : "s"} this season`, "season");
     const mins = logs.slice(0, 10).map(l => l.min).filter(m => m > 0);
-    if (mins.length >= 5) { const cv = sd(mins) / (mean(mins) || 1); hit(cv > 0.25 ? 5 : 0, `Minutes swing a lot (±${Math.round(cv * 100)}%)`); }
+    if (mins.length >= 5) { const cv = sd(mins) / (mean(mins) || 1); hit(cv > 0.25 ? 5 : 0, `Minutes swing a lot (±${Math.round(cv * 100)}%)`, "mins"); }
     const part = k => proj.parts.filter(x => x.key === k).reduce((a, x) => a * x.mult, 1);
-    hit(Math.abs(part("minutes") - 1) > 0.06 ? 10 : 0, "Role is changing (minutes trend)");
-    hit(Math.abs(part("teammate") - 1) > 0.1 ? 10 : 0, "Leans on teammate-out boosts (not backtested)");
-    hit(part("blowout") !== 1 ? 5 : 0, "Blowout risk");
+    hit(Math.abs(part("minutes") - 1) > 0.06 ? 10 : 0, "Role is changing (minutes trend)", "role");
+    hit(Math.abs(part("teammate") - 1) > 0.1 ? 10 : 0, "Leans on teammate-out boosts (not backtested)", "teammate");
+    hit(part("blowout") !== 1 ? 5 : 0, "Blowout risk", "blowout");
     const inj = String(p.injury || "");
-    hit(/question|day|doubt|probable|gtd/i.test(inj) ? 20 : 0, `Player is ${inj.toLowerCase()}`);
-    const tq = (p.teammatesQuestionable || []).length; hit(Math.min(10, tq * 5), `${tq} teammate${tq === 1 ? "" : "s"} questionable`);
+    hit(/question|day|doubt|probable|gtd/i.test(inj) ? 20 : 0, `Player is ${inj.toLowerCase()}`, "injury");
+    const tq = (p.teammatesQuestionable || []).length; hit(Math.min(10, tq * 5), `${tq} teammate${tq === 1 ? "" : "s"} questionable`, "tmq");
     if (best !== undefined) {
-      if (!best) hit(15, "No price to compare with the market");
+      if (!best) hit(15, "No price to compare with the market", "noprice");
       else {
-        hit(best.market == null ? 5 : 0, "One-sided market");
-        hit(best.vol != null && best.vol < 100 ? 10 : 0, `Thin market (${best.vol} contracts traded)`);
-        hit(best.price > 250 ? 10 : 0, "Long shot price");
+        hit(best.market == null ? 5 : 0, "One-sided market", "onesided");
+        hit(best.vol != null && best.vol < 100 ? 10 : 0, `Thin market (${best.vol} contracts traded)`, "thin");
+        hit(best.price > 250 ? 10 : 0, "Long shot price", "longshot");
         const d = best.market == null ? 0 : Math.abs(best.model - best.market);
-        hit(Math.round(clamp((d - 0.05) * 120, 0, 35)), `Model and market disagree by ${Math.round(d * 100)} points`);
+        hit(Math.round(clamp((d - 0.05) * 120, 0, 35)), `Model and market disagree by ${Math.round(d * 100)} points`, "disagree");
       }
     }
     const score = clamp(100 - why.reduce((a, x) => a + x.pts, 0), 0, 100);

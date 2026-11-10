@@ -17,7 +17,7 @@ on:
     - cron: "41 15 * * *"    # daily (~10:41 ET): also refresh sportsbook lines
 
 permissions:
-  contents: read
+  contents: write   # publishes the live model ledger to the model-ledger branch
   pages: write
   id-token: write
 
@@ -47,6 +47,13 @@ jobs:
       - name: Test parsers
         run: node --test
 
+      # The live model ledger (graded model-vs-market picks) lives on the model-ledger branch so it
+      # survives cache eviction and the daily tuning session can read it.
+      - name: Restore model ledger
+        run: |
+          mkdir -p .cache
+          if git fetch -q origin model-ledger 2>/dev/null; then git show origin/model-ledger:track.json > .cache/track.json && echo "ledger restored"; fi
+
       - name: Fetch real player data
         continue-on-error: true   # if ESPN is down, still deploy (the app falls back to demo data)
         env:
@@ -55,6 +62,17 @@ jobs:
           ODDS_MAX_CREDITS: ${{ vars.ODDS_MAX_CREDITS || '16' }}
           ODDS_REGIONS: ${{ vars.ODDS_REGIONS || 'us' }}
         run: node scripts/fetch-data.mjs
+
+      - name: Publish model ledger
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          [ -s .cache/track.json ] || exit 0
+          tmp=$(mktemp -d); cp .cache/track.json "$tmp/"
+          cd "$tmp" && git init -q -b model-ledger && git add track.json \
+            && git -c user.name="github-actions[bot]" -c user.email="41898341+github-actions[bot]@users.noreply.github.com" commit -qm "Model ledger $(date -u +%FT%TZ)" \
+            && git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" model-ledger
 
       - name: Backtest the edge model
         continue-on-error: true

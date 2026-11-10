@@ -18,9 +18,6 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const M = require("../site/model.js");
 
-const TUNE = process.argv.includes("--tune");
-const DATA = process.argv.find(a => a.endsWith(".json")) || "site/data.json";
-const data = JSON.parse(readFileSync(DATA, "utf8"));
 
 const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
 const median = a => { const s = [...a].sort((x, y) => x - y), n = s.length; return n ? (n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2) : 0; };
@@ -146,8 +143,8 @@ const GRID = {
  * a setting only changes if it helps in every block, which keeps small leagues (NFL) from chasing
  * noise or one season's quirks.
  */
-function tune(league, train) {
-  const cur = { ...M.DEFAULT, calA: 1, calB: 0 };
+function tune(league, train, start) {
+  const cur = { ...M.DEFAULT, calA: 1, calB: 0, ...(start || {}) };
   const dates = [...new Set(train.map(c => c.date))].sort();
   const cuts = [dates[Math.floor(dates.length / 3)], dates[Math.floor(dates.length * 2 / 3)]];
   const blocks = [train.filter(c => c.date < cuts[0]), train.filter(c => c.date >= cuts[0] && c.date < cuts[1]), train.filter(c => c.date >= cuts[1])];
@@ -169,23 +166,35 @@ function tune(league, train) {
   return { ...cur, ...fitCalibration(score(train, league, cur).preds) };
 }
 
-const strip = s => { const { preds, ...rest } = s; rest.mainLine = { props: s.mainLine.props, logLoss: +s.mainLine.logLoss.toFixed(4), bias: +s.mainLine.bias.toFixed(4) }; for (const k of ["mae", "maeL10", "logLoss", "logLossHitRate", "brier"]) rest[k] = +rest[k].toFixed(4); return rest; };
-const report = { generated: new Date().toISOString(), source: data.generated, method: "Walk-forward replay: each game predicted from only the games before it. Lines at the player's recent median (x.5), ±1, and alternate strikes ±0.5 and ±1 standard deviation away. Settings tuned on the earlier 70% of dates; numbers below are the later 30%.", leagues: {} };
-const tuned = {};
-
-for (const [league, sport] of Object.entries(data.sports)) {
-  const cases = buildCases(league, sport);
-  if (cases.length < 200) { console.log(league, "too few cases", cases.length); continue; }
+export const strip = s => { const { preds, ...rest } = s; rest.mainLine = { props: s.mainLine.props, logLoss: +s.mainLine.logLoss.toFixed(4), bias: +s.mainLine.bias.toFixed(4) }; for (const k of ["mae", "maeL10", "logLoss", "logLossHitRate", "brier"]) rest[k] = +rest[k].toFixed(4); return rest; };
+/** Split one league's cases by date: earlier 70% to tune on, later 30% to test. */
+export function split(cases) {
   const dates = [...new Set(cases.map(c => c.date))].sort(), cut = dates[Math.floor(dates.length * 0.7)];
-  const train = cases.filter(c => c.date < cut), test = cases.filter(c => c.date >= cut);
-  const params = TUNE ? tune(league, train) : M.cfg(league);
-  const before = score(test, league, { ...M.DEFAULT, calA: 1, calB: 0 });
-  const after = score(test, league, params);
-  const changed = Object.fromEntries(Object.entries(params).filter(([k, v]) => M.DEFAULT[k] !== v));
-  tuned[league] = changed;
-  report.leagues[league] = { train: train.length, test: test.length, split: cut, defaults: strip(before), tuned: strip(after) };
-  console.log(`${league}: test ${test.length} cases | logloss ${before.logLoss.toFixed(4)} → ${after.logLoss.toFixed(4)} (hit-rate only ${after.logLossHitRate.toFixed(4)}) | brier ${before.brier.toFixed(4)} → ${after.brier.toFixed(4)} | main-line LL ${before.mainLine.logLoss.toFixed(4)} → ${after.mainLine.logLoss.toFixed(4)} bias ${after.mainLine.bias.toFixed(3)} | MAE ${before.mae.toFixed(3)} → ${after.mae.toFixed(3)} (L10 avg ${after.maeL10.toFixed(3)})`);
+  return { cut, train: cases.filter(c => c.date < cut), test: cases.filter(c => c.date >= cut) };
 }
-if (TUNE) console.log("PARAMS =", JSON.stringify(tuned));
-writeFileSync("site/model-report.json", JSON.stringify(report, null, 1));
-console.log("wrote site/model-report.json");
+
+export { buildCases, score, tune, fitCalibration, GRID };
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const TUNE = process.argv.includes("--tune");
+  const DATA = process.argv.find(a => a.endsWith(".json")) || "site/data.json";
+  const data = JSON.parse(readFileSync(DATA, "utf8"));
+  const report = { generated: new Date().toISOString(), source: data.generated, method: "Walk-forward replay: each game predicted from only the games before it. Lines at the player's recent median (x.5), ±1, and alternate strikes ±0.5 and ±1 standard deviation away. Settings tuned on the earlier 70% of dates; numbers below are the later 30%.", leagues: {} };
+  const tuned = {};
+
+  for (const [league, sport] of Object.entries(data.sports)) {
+    const cases = buildCases(league, sport);
+    if (cases.length < 200) { console.log(league, "too few cases", cases.length); continue; }
+    const { cut, train, test } = split(cases);
+    const params = TUNE ? tune(league, train) : M.cfg(league);
+    const before = score(test, league, { ...M.DEFAULT, calA: 1, calB: 0 });
+    const after = score(test, league, params);
+    const changed = Object.fromEntries(Object.entries(params).filter(([k, v]) => M.DEFAULT[k] !== v));
+    tuned[league] = changed;
+    report.leagues[league] = { train: train.length, test: test.length, split: cut, defaults: strip(before), tuned: strip(after) };
+    console.log(`${league}: test ${test.length} cases | logloss ${before.logLoss.toFixed(4)} → ${after.logLoss.toFixed(4)} (hit-rate only ${after.logLossHitRate.toFixed(4)}) | brier ${before.brier.toFixed(4)} → ${after.brier.toFixed(4)} | main-line LL ${before.mainLine.logLoss.toFixed(4)} → ${after.mainLine.logLoss.toFixed(4)} bias ${after.mainLine.bias.toFixed(3)} | MAE ${before.mae.toFixed(3)} → ${after.mae.toFixed(3)} (L10 avg ${after.maeL10.toFixed(3)})`);
+  }
+  if (TUNE) console.log("PARAMS =", JSON.stringify(tuned));
+  writeFileSync("site/model-report.json", JSON.stringify(report, null, 1));
+  console.log("wrote site/model-report.json");
+}
