@@ -588,13 +588,14 @@ export class Recorder {
   }
   /** Players with Kalshi markets in a game: live stats and every line, from the market rows. */
   playersReport(g, rows) {
-    const totals = {};
-    for (const [id, t] of Object.entries(g.totals || {})) { const name = t.name || g.names[id]; if (name) totals[normName(name)] = t; }
+    const totals = {}, ids = {};
+    for (const [id, name] of Object.entries(g.names || {})) ids[normName(name)] = id;
+    for (const [id, t] of Object.entries(g.totals || {})) { const name = t.name || g.names[id]; if (name) { totals[normName(name)] = t; ids[normName(name)] ||= id; } }
     const players = {};
     for (const r of rows) {
       if (r.group !== "Player props" || !String(r.label).includes(":")) continue;
       const [who, what] = String(r.label).split(/:(.*)/s);
-      const key = normName(who); const P = (players[key] ||= { player: who.trim(), stats: null, lines: [], traded: 0, events: 0 });
+      const key = normName(who); const P = (players[key] ||= { player: who.trim(), espnId: ids[key] && /^\d+$/.test(ids[key]) ? ids[key] : null, stats: null, lines: [], traded: 0, events: 0 });
       const m = this.markets.get(r.ticker) || {};
       const cur = m.stat ? totals[key]?.[m.stat] : null;
       P.lines.push({ ticker: r.ticker, label: what.trim(), stat: m.stat || null, line: r.line, pre: r.pre, end: r.end, change: r.change, traded: r.traded, closed: r.closed,
