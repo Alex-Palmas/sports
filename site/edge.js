@@ -42,7 +42,26 @@
     return out.sort((a, b) => b.score - a.score);
   }
 
+  // walk-forward backtest (scripts/backtest-model.mjs) + live ledger (scripts/fetch-data.mjs)
+  let report = null, reportReq = null;
+  const loadReport = () => reportReq ||= fetch("model-report.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).catch(() => null).then(r => (report = r));
+  const n2 = x => x == null ? "—" : (+x).toFixed(3);
+  function accuracy(DATA) {
+    const lgs = Object.entries(report?.leagues || {}), live = Object.entries(DATA.modelTrack || {});
+    if (!lgs.length && !live.length) return "";
+    const name = k => DATA.sports[k]?.name || k.toUpperCase();
+    return `<details class="card model-acc"><summary><b>Model accuracy</b> <span class="pl-sub">tested on past games it never saw</span></summary>
+      ${lgs.length ? `<p class="pl-sub">${esc(report.method)} Log loss: lower is better; a coin flip scores 0.693. "Hit rate only" is the last-20 over % on its own.</p>
+      <div class="table-scroll"><table class="acc-table"><thead><tr><th>League</th><th>Props tested</th><th>Log loss</th><th>Hit rate only</th><th>Main line</th><th>Brier</th><th>Avg miss</th></tr></thead><tbody>
+      ${lgs.map(([k, r]) => `<tr><td>${esc(name(k))}</td><td>${r.tuned.props.toLocaleString()}</td><td><b>${n2(r.tuned.logLoss)}</b></td><td>${n2(r.tuned.logLossHitRate)}</td><td>${n2(r.tuned.mainLine.logLoss)}</td><td>${n2(r.tuned.brier)}</td><td>${(+r.tuned.mae).toFixed(2)}</td></tr>`).join("")}
+      </tbody></table></div>
+      ${lgs.map(([k, r]) => `<div class="acc-cal"><span class="pl-sub">${esc(name(k))} calibration (predicted → actual over rate)</span><div class="acc-bars">${r.tuned.calibration.filter(b => b.n >= 30).map(b => `<span title="${b.n} props"><i style="height:${Math.round(b.actual * 100)}%"></i><em style="bottom:${Math.round(b.predicted * 100)}%"></em><small>${Math.round(b.predicted * 100)}</small></span>`).join("")}</div></div>`).join("")}` : ""}
+      ${live.length ? `<p class="pl-sub"><b>Live record</b> (real lines, graded after each game): ${live.map(([k, t]) => `${esc(name(k))}: ${t.n} props, ours ${n2(t.model.logLoss)} vs market ${n2(t.market.logLoss)}, best market weight ${Math.round(t.blend.marketWeight * 100)}%`).join(" · ")}${live.some(([, t]) => t.n < 300) ? ". The EV blend switches to the live weight after 300 graded props." : ""}</p>` : `<p class="pl-sub">Live record: starts filling in as tonight's props are graded.</p>`}
+    </details>`;
+  }
+
   function render(el, DATA, api) {
+    if (!report && !reportReq) loadReport().then(() => { if (!el.hidden) render(el, DATA, api); });
     const all = rows(DATA), shown = all.slice(0, opts.show);
     const leagues = Object.entries(DATA.sports).filter(([, s]) => s.players?.length);
     el.querySelector("#edgeBody").innerHTML = `
@@ -52,7 +71,8 @@
         <label class="edge-search">Search <input id="edgeQ" type="search" placeholder="Player, team or stat" value="${esc(opts.q)}" autocomplete="off"/></label>
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
-      <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · EV uses our projection blended 50/50 with the market's vig-free price at that line, after Kalshi fees where they apply. Above +25% usually means the model is missing something (news, minutes limits): check before betting. Not betting advice.</div>
+      ${accuracy(DATA)}
+      <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · EV uses our projection blended with the market's vig-free price at that line (market weight ${Math.round(((window.PropModel.cfg(opts.league === "all" ? "nba" : opts.league).marketWeight) || 0.5) * 100)}%), after Kalshi fees where they apply. Above +25% usually means the model is missing something (news, minutes limits): check before betting. Not betting advice.</div>
       <div class="edge-list">${shown.map((x, i) => {
         const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25;
         return `<button class="card edge-row" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">

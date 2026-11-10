@@ -1,0 +1,478 @@
+{
+ "generated": "2026-11-10T20:27:16.922Z",
+ "source": "2026-11-10T19:49:20.041Z",
+ "method": "Walk-forward replay: each game predicted from only the games before it. Lines at the player's recent median (x.5), ±1, and alternate strikes ±0.5 and ±1 standard deviation away. Settings tuned on the earlier 70% of dates; numbers below are the later 30%.",
+ "leagues": {
+  "nba": {
+   "train": 23573,
+   "test": 19308,
+   "split": "2026-04-26",
+   "defaults": {
+    "cases": 19308,
+    "props": 87950,
+    "mainLine": {
+     "props": 19308,
+     "logLoss": 0.6369,
+     "bias": -0.0019
+    },
+    "mae": 2.5805,
+    "maeL10": 2.6065,
+    "logLoss": 0.565,
+    "logLossHitRate": 0.5808,
+    "brier": 0.1917,
+    "calibration": [
+     {
+      "bin": "0-10%",
+      "n": 5143,
+      "predicted": 0.072,
+      "actual": 0.079
+     },
+     {
+      "bin": "10-20%",
+      "n": 13381,
+      "predicted": 0.151,
+      "actual": 0.15
+     },
+     {
+      "bin": "20-30%",
+      "n": 13020,
+      "predicted": 0.249,
+      "actual": 0.244
+     },
+     {
+      "bin": "30-40%",
+      "n": 12333,
+      "predicted": 0.351,
+      "actual": 0.344
+     },
+     {
+      "bin": "40-50%",
+      "n": 11973,
+      "predicted": 0.45,
+      "actual": 0.446
+     },
+     {
+      "bin": "50-60%",
+      "n": 10534,
+      "predicted": 0.548,
+      "actual": 0.535
+     },
+     {
+      "bin": "60-70%",
+      "n": 8283,
+      "predicted": 0.648,
+      "actual": 0.641
+     },
+     {
+      "bin": "70-80%",
+      "n": 6611,
+      "predicted": 0.747,
+      "actual": 0.725
+     },
+     {
+      "bin": "80-90%",
+      "n": 4769,
+      "predicted": 0.846,
+      "actual": 0.827
+     },
+     {
+      "bin": "90-100%",
+      "n": 1903,
+      "predicted": 0.933,
+      "actual": 0.905
+     }
+    ]
+   },
+   "tuned": {
+    "cases": 19308,
+    "props": 87950,
+    "mainLine": {
+     "props": 19308,
+     "logLoss": 0.6368,
+     "bias": -0.0033
+    },
+    "mae": 2.5808,
+    "maeL10": 2.6065,
+    "logLoss": 0.5644,
+    "logLossHitRate": 0.5808,
+    "brier": 0.1915,
+    "calibration": [
+     {
+      "bin": "0-10%",
+      "n": 4772,
+      "predicted": 0.072,
+      "actual": 0.077
+     },
+     {
+      "bin": "10-20%",
+      "n": 12968,
+      "predicted": 0.152,
+      "actual": 0.147
+     },
+     {
+      "bin": "20-30%",
+      "n": 13184,
+      "predicted": 0.249,
+      "actual": 0.24
+     },
+     {
+      "bin": "30-40%",
+      "n": 12811,
+      "predicted": 0.35,
+      "actual": 0.339
+     },
+     {
+      "bin": "40-50%",
+      "n": 12802,
+      "predicted": 0.45,
+      "actual": 0.448
+     },
+     {
+      "bin": "50-60%",
+      "n": 10738,
+      "predicted": 0.548,
+      "actual": 0.543
+     },
+     {
+      "bin": "60-70%",
+      "n": 8299,
+      "predicted": 0.648,
+      "actual": 0.651
+     },
+     {
+      "bin": "70-80%",
+      "n": 6505,
+      "predicted": 0.746,
+      "actual": 0.736
+     },
+     {
+      "bin": "80-90%",
+      "n": 4387,
+      "predicted": 0.845,
+      "actual": 0.839
+     },
+     {
+      "bin": "90-100%",
+      "n": 1484,
+      "predicted": 0.932,
+      "actual": 0.92
+     }
+    ]
+   }
+  },
+  "nfl": {
+   "train": 5050,
+   "test": 4243,
+   "split": "2026-02-08",
+   "defaults": {
+    "cases": 4243,
+    "props": 19328,
+    "mainLine": {
+     "props": 4243,
+     "logLoss": 0.6522,
+     "bias": -0.0067
+    },
+    "mae": 11.3605,
+    "maeL10": 11.3927,
+    "logLoss": 0.5828,
+    "logLossHitRate": 0.5876,
+    "brier": 0.1991,
+    "calibration": [
+     {
+      "bin": "0-10%",
+      "n": 1347,
+      "predicted": 0.068,
+      "actual": 0.079
+     },
+     {
+      "bin": "10-20%",
+      "n": 2898,
+      "predicted": 0.151,
+      "actual": 0.195
+     },
+     {
+      "bin": "20-30%",
+      "n": 2618,
+      "predicted": 0.248,
+      "actual": 0.286
+     },
+     {
+      "bin": "30-40%",
+      "n": 2549,
+      "predicted": 0.35,
+      "actual": 0.37
+     },
+     {
+      "bin": "40-50%",
+      "n": 2681,
+      "predicted": 0.45,
+      "actual": 0.462
+     },
+     {
+      "bin": "50-60%",
+      "n": 2376,
+      "predicted": 0.548,
+      "actual": 0.543
+     },
+     {
+      "bin": "60-70%",
+      "n": 1717,
+      "predicted": 0.647,
+      "actual": 0.659
+     },
+     {
+      "bin": "70-80%",
+      "n": 1290,
+      "predicted": 0.749,
+      "actual": 0.729
+     },
+     {
+      "bin": "80-90%",
+      "n": 1102,
+      "predicted": 0.848,
+      "actual": 0.786
+     },
+     {
+      "bin": "90-100%",
+      "n": 750,
+      "predicted": 0.94,
+      "actual": 0.88
+     }
+    ]
+   },
+   "tuned": {
+    "cases": 4243,
+    "props": 19328,
+    "mainLine": {
+     "props": 4243,
+     "logLoss": 0.6494,
+     "bias": -0.0225
+    },
+    "mae": 11.3903,
+    "maeL10": 11.3927,
+    "logLoss": 0.5782,
+    "logLossHitRate": 0.5876,
+    "brier": 0.1978,
+    "calibration": [
+     {
+      "bin": "0-10%",
+      "n": 1035,
+      "predicted": 0.066,
+      "actual": 0.059
+     },
+     {
+      "bin": "10-20%",
+      "n": 2597,
+      "predicted": 0.154,
+      "actual": 0.17
+     },
+     {
+      "bin": "20-30%",
+      "n": 2928,
+      "predicted": 0.249,
+      "actual": 0.28
+     },
+     {
+      "bin": "30-40%",
+      "n": 2892,
+      "predicted": 0.351,
+      "actual": 0.362
+     },
+     {
+      "bin": "40-50%",
+      "n": 3374,
+      "predicted": 0.45,
+      "actual": 0.469
+     },
+     {
+      "bin": "50-60%",
+      "n": 2406,
+      "predicted": 0.547,
+      "actual": 0.599
+     },
+     {
+      "bin": "60-70%",
+      "n": 1648,
+      "predicted": 0.648,
+      "actual": 0.667
+     },
+     {
+      "bin": "70-80%",
+      "n": 1283,
+      "predicted": 0.747,
+      "actual": 0.772
+     },
+     {
+      "bin": "80-90%",
+      "n": 824,
+      "predicted": 0.847,
+      "actual": 0.845
+     },
+     {
+      "bin": "90-100%",
+      "n": 341,
+      "predicted": 0.933,
+      "actual": 0.921
+     }
+    ]
+   }
+  },
+  "nhl": {
+   "train": 8561,
+   "test": 12688,
+   "split": "2026-05-09",
+   "defaults": {
+    "cases": 12688,
+    "props": 33913,
+    "mainLine": {
+     "props": 12688,
+     "logLoss": 0.6205,
+     "bias": -0.0279
+    },
+    "mae": 0.7835,
+    "maeL10": 0.7996,
+    "logLoss": 0.499,
+    "logLossHitRate": 0.5076,
+    "brier": 0.1651,
+    "calibration": [
+     {
+      "bin": "0-10%",
+      "n": 7137,
+      "predicted": 0.063,
+      "actual": 0.061
+     },
+     {
+      "bin": "10-20%",
+      "n": 7171,
+      "predicted": 0.146,
+      "actual": 0.152
+     },
+     {
+      "bin": "20-30%",
+      "n": 5358,
+      "predicted": 0.248,
+      "actual": 0.278
+     },
+     {
+      "bin": "30-40%",
+      "n": 3964,
+      "predicted": 0.35,
+      "actual": 0.359
+     },
+     {
+      "bin": "40-50%",
+      "n": 3874,
+      "predicted": 0.447,
+      "actual": 0.456
+     },
+     {
+      "bin": "50-60%",
+      "n": 2475,
+      "predicted": 0.549,
+      "actual": 0.577
+     },
+     {
+      "bin": "60-70%",
+      "n": 1959,
+      "predicted": 0.649,
+      "actual": 0.684
+     },
+     {
+      "bin": "70-80%",
+      "n": 1213,
+      "predicted": 0.745,
+      "actual": 0.755
+     },
+     {
+      "bin": "80-90%",
+      "n": 633,
+      "predicted": 0.848,
+      "actual": 0.883
+     },
+     {
+      "bin": "90-100%",
+      "n": 129,
+      "predicted": 0.918,
+      "actual": 0.915
+     }
+    ]
+   },
+   "tuned": {
+    "cases": 12688,
+    "props": 33913,
+    "mainLine": {
+     "props": 12688,
+     "logLoss": 0.6172,
+     "bias": -0.0224
+    },
+    "mae": 0.7821,
+    "maeL10": 0.7996,
+    "logLoss": 0.4962,
+    "logLossHitRate": 0.5076,
+    "brier": 0.1641,
+    "calibration": [
+     {
+      "bin": "0-10%",
+      "n": 7674,
+      "predicted": 0.06,
+      "actual": 0.063
+     },
+     {
+      "bin": "10-20%",
+      "n": 6780,
+      "predicted": 0.146,
+      "actual": 0.157
+     },
+     {
+      "bin": "20-30%",
+      "n": 4971,
+      "predicted": 0.248,
+      "actual": 0.272
+     },
+     {
+      "bin": "30-40%",
+      "n": 3919,
+      "predicted": 0.348,
+      "actual": 0.353
+     },
+     {
+      "bin": "40-50%",
+      "n": 3994,
+      "predicted": 0.448,
+      "actual": 0.463
+     },
+     {
+      "bin": "50-60%",
+      "n": 2374,
+      "predicted": 0.547,
+      "actual": 0.555
+     },
+     {
+      "bin": "60-70%",
+      "n": 1952,
+      "predicted": 0.648,
+      "actual": 0.665
+     },
+     {
+      "bin": "70-80%",
+      "n": 1347,
+      "predicted": 0.745,
+      "actual": 0.755
+     },
+     {
+      "bin": "80-90%",
+      "n": 684,
+      "predicted": 0.849,
+      "actual": 0.874
+     },
+     {
+      "bin": "90-100%",
+      "n": 218,
+      "predicted": 0.921,
+      "actual": 0.908
+     }
+    ]
+   }
+  }
+ }
+}

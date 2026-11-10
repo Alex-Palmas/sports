@@ -56,6 +56,10 @@ jobs:
           ODDS_REGIONS: ${{ vars.ODDS_REGIONS || 'us' }}
         run: node scripts/fetch-data.mjs
 
+      - name: Backtest the edge model
+        continue-on-error: true
+        run: node scripts/backtest-model.mjs
+
       - uses: actions/cache/save@v4
         if: always() && hashFiles('.cache/**') != ''
         with:

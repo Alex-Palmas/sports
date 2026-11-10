@@ -22,6 +22,8 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { createRequire } from "node:module";
+const PropModel = createRequire(import.meta.url)("../site/model.js");
 
 const OUT = process.env.OUT || "site/data.json";
 const ODDS_KEY = process.env.ODDS_API_KEY || "";
@@ -29,6 +31,7 @@ const FETCH_ODDS = process.env.FETCH_ODDS === "1" || process.env.FETCH_ODDS === 
 const ODDS_MAX_CREDITS = +(process.env.ODDS_MAX_CREDITS || 16);
 const ODDS_CACHE = process.env.ODDS_CACHE || ".cache/odds.json";
 const HISTORY = process.env.HISTORY || ".cache/history.json";   // opening lines + daily line history (kept between runs)
+const TRACK = process.env.TRACK || ".cache/track.json";         // live model-vs-market ledger (kept between runs)
 const ODDS_REGIONS = (process.env.ODDS_REGIONS || "us").split(",").map(x => x.trim()).filter(Boolean);
 const KALSHI = process.env.KALSHI !== "0";
 
@@ -439,6 +442,10 @@ async function main() {
   applyHistory(out, history);
   await mkdir(dirname(HISTORY), { recursive: true });
   await writeFile(HISTORY, JSON.stringify(history));
+  let track = { picks: {} }; try { track = JSON.parse(await readFile(TRACK, "utf8")); } catch {}
+  applyTrack(out, track);
+  await writeFile(TRACK, JSON.stringify(track));
+  for (const [k, t] of Object.entries(out.modelTrack || {})) console.log(`track ${k}: ${t.n} graded, model LL ${t.model?.logLoss} vs market ${t.market?.logLoss}`);
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, JSON.stringify(out));
   console.log(`wrote ${OUT}`);
@@ -480,6 +487,50 @@ export function applyHistory(out, history, now = Date.now()) {
     }
   }
   return out;
+}
+
+/**
+ * Live ledger: before each game we record, at the main line, our model's P(over) and the market's
+ * vig-free P(over) (the latest price before tip-off wins). Once the player's game log shows the
+ * result, the pick is graded. Per league we publish how each did (log loss, Brier) and the
+ * market weight that would have scored best, which the app then uses for EV once enough are in.
+ */
+export function applyTrack(out, track, now = Date.now(), M = PropModel) {
+  track.picks ||= {};
+  const keep = now - 120 * 86400e3, logsById = {};
+  for (const [lg, sport] of Object.entries(out.sports)) for (const p of sport.players || []) {
+    logsById[`${lg}|${p.espnId}`] = p.logs || [];
+    const t = Date.parse(p.gameDate || ""); if (!(t > now)) continue; // only before the game starts
+    const day = p.gameDate.slice(0, 10);
+    for (const [stat, line] of Object.entries(p.lines || {})) {
+      const q = (p.market?.[stat] || []).find(x => x.l === line && x.o != null && x.u != null && !x.alt);
+      if (!q || Number.isInteger(line)) continue;
+      const proj = M.project(p, stat, lg); if (!proj) continue;
+      const pr = M.probabilities(p, stat, line, proj, lg);
+      track.picks[`${lg}|${p.espnId}|${stat}|${day}`] = { lg, id: p.espnId, stat, day, line, model: +pr.over.toFixed(4), market: +M.marketProb(q, "over").toFixed(4), book: q.b };
+    }
+  }
+  for (const [k, x] of Object.entries(track.picks)) {
+    if (Date.parse(x.day) < keep) { delete track.picks[k]; continue; }
+    if (x.y != null) continue;
+    const l = (logsById[`${x.lg}|${x.id}`] || []).find(g => g.date === x.day);
+    if (l && l.stats?.[x.stat] != null) { x.actual = l.stats[x.stat]; x.y = x.actual > x.line ? 1 : 0; }
+  }
+  const ll = (q, y) => -Math.log(y ? Math.max(q, 0.01) : Math.max(1 - q, 0.01));
+  const summary = {};
+  for (const lg of Object.keys(out.sports)) {
+    const g = Object.values(track.picks).filter(x => x.lg === lg && x.y != null);
+    if (!g.length) continue;
+    const avg = f => +(g.reduce((a, x) => a + f(x), 0) / g.length).toFixed(4);
+    let bestW = 0.5, bestLL = Infinity;
+    for (let w = 0; w <= 1.0001; w += 0.05) { const v = avg(x => ll((1 - w) * x.model + w * x.market, x.y)); if (v < bestLL) { bestLL = v; bestW = +w.toFixed(2); } }
+    summary[lg] = { n: g.length, overRate: avg(x => x.y),
+      model: { logLoss: avg(x => ll(x.model, x.y)), brier: avg(x => (x.model - x.y) ** 2) },
+      market: { logLoss: avg(x => ll(x.market, x.y)), brier: avg(x => (x.market - x.y) ** 2) },
+      blend: { marketWeight: bestW, logLoss: bestLL } };
+  }
+  out.modelTrack = summary;
+  return summary;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();
