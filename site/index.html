@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PropLab · Player Prop Research</title>
+  <meta name="description" content="Research player props with hit rates, game logs and matchup trends." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%2322c55e'/><path d='M8 22l5-6 4 3 7-9' stroke='%23052e16' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--accent)"/><path d="M8 22l5-6 4 3 7-9" stroke="#052e16" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Prop<b>Lab</b></span>
+    </div>
+    <nav class="sports" id="sportTabs" role="tablist"></nav>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar">
+      <div class="filters">
+        <input id="search" type="search" placeholder="Search player or team…" autocomplete="off" />
+        <div class="row">
+          <select id="statFilter" aria-label="Stat"></select>
+          <select id="sortBy" aria-label="Sort">
+            <option value="hit">Sort: Hit rate (L10)</option>
+            <option value="edge">Sort: Avg vs line</option>
+            <option value="streak">Sort: Streak</option>
+            <option value="name">Sort: Name</option>
+          </select>
+        </div>
+        <div class="row seg" id="sideToggle">
+          <button data-side="over" class="active">Over</button>
+          <button data-side="under">Under</button>
+        </div>
+      </div>
+      <div class="list-head"><span>Player / Prop</span><span>L5</span><span>L10</span><span>L20</span></div>
+      <ul class="prop-list" id="propList"></ul>
+    </aside>
+
+    <section class="detail" id="detail"></section>
+  </main>
+
+  <footer class="foot">Demo data — fictional players and generated stats for illustration only. Not betting advice.</footer>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

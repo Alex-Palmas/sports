@@ -1,0 +1,88 @@
+:root{
+  --bg:#0b0f14;--panel:#121821;--panel2:#18202b;--line:#232d3a;--text:#e6edf3;--muted:#8b98a8;
+  --accent:#22c55e;--accent2:#16a34a;--red:#ef4444;--amber:#f59e0b;--blue:#3b82f6;
+  --hit:#22c55e;--miss:#ef4444;--push:#64748b;
+}
+:root[data-theme="light"]{
+  --bg:#f4f6f9;--panel:#ffffff;--panel2:#f0f3f7;--line:#dfe5ec;--text:#111827;--muted:#5b6777;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{min-height:100vh;background:var(--bg);color:var(--text);font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;display:flex;flex-direction:column}
+button,select,input{font:inherit;color:inherit}
+.topbar{display:flex;align-items:center;gap:16px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.brand{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;letter-spacing:.2px}
+.brand b{color:var(--accent)}
+.sports{display:flex;gap:4px;flex:1;overflow-x:auto}
+.sports button{background:none;border:1px solid transparent;border-radius:8px;padding:6px 12px;cursor:pointer;color:var(--muted);font-weight:600;white-space:nowrap}
+.sports button.active{background:var(--panel2);border-color:var(--line);color:var(--text)}
+.icon-btn{background:var(--panel2);border:1px solid var(--line);border-radius:8px;width:34px;height:34px;cursor:pointer}
+
+.layout{flex:1;display:grid;grid-template-columns:380px 1fr;min-height:0}
+.sidebar{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;height:calc(100vh - 55px - 33px);position:sticky;top:55px}
+.filters{padding:12px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line)}
+.filters input,.filters select{width:100%;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.row{display:flex;gap:8px}
+.seg{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px}
+.seg button{flex:1;background:none;border:0;padding:6px;border-radius:6px;cursor:pointer;color:var(--muted);font-weight:600}
+.seg button.active{background:var(--panel);color:var(--text);box-shadow:0 0 0 1px var(--line)}
+.list-head{display:grid;grid-template-columns:1fr 46px 46px 46px;gap:4px;padding:8px 12px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--line)}
+.list-head span:not(:first-child){text-align:center}
+.prop-list{list-style:none;margin:0;padding:0;overflow-y:auto;flex:1}
+.prop-list li{display:grid;grid-template-columns:1fr 46px 46px 46px;gap:4px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.prop-list li:hover{background:var(--panel2)}
+.prop-list li.sel{background:var(--panel2);box-shadow:inset 3px 0 0 var(--accent)}
+.pl-name{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-sub{color:var(--muted);font-size:12px}
+.pill{text-align:center;font-size:12px;font-weight:700;border-radius:6px;padding:4px 0}
+.empty{padding:24px;color:var(--muted);text-align:center}
+
+.detail{padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.player-head{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.avatar{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:18px;color:#fff}
+.ph-main{flex:1;min-width:200px}
+.ph-main h1{margin:0;font-size:22px}
+.ph-main .pl-sub{font-size:13px}
+.game-tag{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:13px}
+.game-tag b{display:block}
+.stat-tabs{display:flex;gap:6px;flex-wrap:wrap}
+.chip{background:var(--panel2);border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer;font-weight:600;font-size:13px;color:var(--muted)}
+.chip.active{background:var(--accent);border-color:var(--accent);color:#052e16}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
+.kpi{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.kpi .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+.kpi .v{font-size:20px;font-weight:700;margin-top:2px}
+.kpi .s{color:var(--muted);font-size:12px}
+.chart-top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.line-ctrl{display:flex;align-items:center;gap:8px}
+.line-ctrl button{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);cursor:pointer;font-weight:700}
+.line-val{min-width:70px;text-align:center;font-weight:700;font-size:16px}
+.line-val small{display:block;color:var(--muted);font-weight:500;font-size:11px}
+.chart{width:100%;height:auto;display:block}
+.chart text{fill:var(--muted);font-size:11px}
+.chart .bar-label{fill:var(--text);font-weight:700;font-size:11px}
+.tables{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 8px;text-align:left;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+td.num,th.num{text-align:right}
+.h-over{color:var(--hit);font-weight:700}.h-under{color:var(--miss);font-weight:700}
+h2{margin:0 0 10px;font-size:15px}
+.splits{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.split{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px}
+.split .bar{height:6px;background:var(--line);border-radius:3px;margin-top:6px;overflow:hidden}
+.split .bar i{display:block;height:100%}
+.foot{padding:8px 16px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);background:var(--panel);text-align:center}
+.mobile-back{display:none}
+
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{position:static;height:auto;max-height:none}
+  .prop-list{max-height:none}
+  .layout.show-detail .sidebar{display:none}
+  .layout:not(.show-detail) .detail{display:none}
+  .mobile-back{display:inline-block;background:none;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer;align-self:flex-start}
+  .tables{grid-template-columns:1fr}
+  .detail{padding:12px}
+}
