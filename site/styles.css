@@ -277,9 +277,9 @@ table.shop td.top{font-weight:800;color:var(--hit)}
   .sports{gap:2px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
   .sports::-webkit-scrollbar{display:none}
   .sports button{padding:8px 10px;min-height:38px}
-  body:not([data-view="props"]):not([data-view=""]) .sports{visibility:hidden}
+  body:not([data-view="props"]):not([data-view="games"]):not([data-view=""]) .sports{visibility:hidden}
   /* bottom tab bar */
-  .views{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(4,1fr);gap:0;
+  .views{position:fixed;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:repeat(5,1fr);gap:0;
     background:var(--panel);border-top:1px solid var(--line);padding:4px max(6px,env(safe-area-inset-left,0px)) calc(4px + env(safe-area-inset-bottom,0px)) max(6px,env(safe-area-inset-right,0px))}
   .view-btn,.view-btn[data-view="props"]{display:flex;flex-direction:column;justify-content:center;gap:2px;min-height:52px;border:0;background:none;border-radius:10px;font-size:11px;font-weight:600;padding:4px 2px}
   .view-btn svg{width:22px;height:22px}
@@ -658,3 +658,38 @@ body:not([data-view="props"]) #statStrip{display:none}
 .edge-stats{background:none;border:0;border-top:1px solid var(--line);margin:0 -14px -10px;padding:8px 14px 10px;border-radius:0 0 14px 14px}
 @media (max-width:760px){.edge-stats{margin:0 -10px -8px;padding:6px 10px 8px}}
 @media (max-width:760px){.stat-strip{padding:6px 12px}.ss-chip{padding:6px 12px}}
+/* game lines */
+.games-list{display:flex;flex-direction:column;gap:12px}
+.game-card{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.game-card.flash{animation:gcflash 1.6s ease-out}
+@keyframes gcflash{0%{box-shadow:0 0 0 3px var(--accent)}100%{box-shadow:0 0 0 0 transparent}}
+.gc-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.gc-matchup{display:flex;align-items:center;gap:7px;font-family:var(--font-display);font-size:19px}
+.gc-matchup .tlogo{margin:0}
+.gl-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.gl-table th,.gl-table td{padding:7px 6px;text-align:center;border-bottom:1px solid var(--line);white-space:nowrap}
+.gl-table thead th{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.gl-table tbody tr:last-child th,.gl-table tbody tr:last-child td{border-bottom:0}
+.gl-team{text-align:left!important;font-family:var(--font-display);font-size:15px}
+.gl-team>span{display:inline-flex;align-items:center;gap:7px}
+.gl-team .tlogo{margin:0}
+.gl-cell b{display:block;font-size:14px}
+.gl-cell small{display:block;font-size:11px;color:var(--muted);margin-top:1px}
+.gl-cell.good{background:var(--hit-soft);border-radius:8px}
+.gl-k{font-size:13px}.gl-k a{color:var(--accent);text-decoration:none;font-weight:600}.gl-k a:hover{text-decoration:underline}
+.gl-src{font-size:11px}.gl-move{margin-left:6px;color:var(--amber)}
+.gl-model{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;background:var(--panel2);border-radius:10px;padding:8px 10px}
+.gl-model>span:first-child{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.gl-best{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.gl-bet .kalshi-link{margin-left:4px}
+.gl-trends summary{cursor:pointer;font-weight:600;font-size:13px}
+.gl-trend{font-size:13px;margin:6px 0;line-height:1.45}
+.gl-ladders{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.gl-ladders>div{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.gl-lad{font-size:12px;background:var(--panel2);border-radius:999px;padding:2px 8px}
+.game-card.compact{margin:8px 12px 4px;padding:10px 12px;gap:8px}
+.game-card.compact .gc-matchup{font-size:16px}
+.game-card.compact .gl-table th,.game-card.compact .gl-table td{padding:5px 4px}
+.gl-more{align-self:flex-start}
+body:not([data-view="props"]) #statStrip{display:none}
+@media (max-width:760px){.game-card{padding:12px}.gc-matchup{font-size:17px}.gl-table th,.gl-table td{padding:6px 4px}.gl-cell b{font-size:13px}}

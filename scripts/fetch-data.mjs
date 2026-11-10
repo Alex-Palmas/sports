@@ -93,6 +93,7 @@ const SPORTS = {
     propStats: () => ["pts", "reb", "ast", "fg3", "pr", "pa", "ra", "pra", "stl", "blk"],
     markets: { player_points: "pts", player_rebounds: "reb", player_assists: "ast", player_threes: "fg3", player_points_rebounds: "pr", player_points_assists: "pa", player_rebounds_assists: "ra", player_points_rebounds_assists: "pra", player_steals: "stl", player_blocks: "blk" },
     oddsMarkets: ["player_points", "player_rebounds", "player_assists"],
+    kalshiGames: { ml: "KXNBAGAME", spread: "KXNBASPREAD", total: "KXNBATOTAL" },
     kalshi: { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3", KXNBAPR: "pr", KXNBAPA: "pa", KXNBARA: "ra", KXNBAPRA: "pra", KXNBASTL: "stl", KXNBABLK: "blk" },
   },
   nfl: {
@@ -110,6 +111,7 @@ const SPORTS = {
     propStats: p => p.pos === "QB" ? ["pass_yds", "pass_td", "rush_yds"] : p.pos === "RB" ? ["rush_yds", "rec_yds", "rec", "td"] : ["rec_yds", "rec", "td"],
     markets: { player_pass_yds: "pass_yds", player_pass_tds: "pass_td", player_rush_yds: "rush_yds", player_reception_yds: "rec_yds", player_receptions: "rec", player_anytime_td: "td" },
     oddsMarkets: ["player_pass_yds", "player_rush_yds", "player_reception_yds"],
+    kalshiGames: { ml: "KXNFLGAME", spread: "KXNFLSPREAD", total: "KXNFLTOTAL" },
     kalshi: { KXNFLPASSYDS: "pass_yds", KXNFLRSHYDS: "rush_yds", KXNFLRECYDS: "rec_yds", KXNFLREC: "rec", KXNFLANYTD: "td" },
   },
   nhl: {
@@ -122,6 +124,7 @@ const SPORTS = {
     propStats: () => ["sog", "pts", "g", "ast"],
     markets: { player_shots_on_goal: "sog", player_points: "pts", player_goals: "g", player_assists: "ast" },
     oddsMarkets: ["player_shots_on_goal", "player_points"],
+    kalshiGames: { ml: "KXNHLGAME", spread: "KXNHLSPREAD", total: "KXNHLTOTAL" },
     kalshi: { KXNHLPTS: "pts", KXNHLAST: "ast", KXNHLANYGOAL: "g", KXNHLGOAL: "g" },
   },
   mlb: {
@@ -167,9 +170,78 @@ async function upcomingGames(cfg) {
     const m = /^([A-Z]{2,4})\s+(-?\d+(?:\.\d+)?)$/.exec(o?.details || "");
     let moneyline = null;
     if (m) { fav = m[1]; spread = Math.abs(+m[2]); if (spread >= 100) { moneyline = -spread; spread = null; } } // NHL/MLB: "MIN -130" is a moneyline
-    games.push({ id: e.id, date: e.date, name: e.shortName, home: home.team, away: away.team, odds: o ? { details: o.details || null, total: o.overUnder ?? null, fav, spread, moneyline } : null });
+    games.push({ id: e.id, date: e.date, name: e.shortName, home: home.team, away: away.team, odds: o ? { details: o.details || null, total: o.overUnder ?? null, fav, spread, moneyline } : null, lines: parseDK(o) });
   }
   return games;
+}
+
+/**
+ * Full game lines from ESPN's odds block (DraftKings): moneyline, spread and total, current and at open.
+ * Exported for tests.
+ */
+export function parseDK(o) {
+  if (!o) return null;
+  const am = x => { if (x == null || x === "") return null; if (/^even$/i.test(x)) return 100; const v = parseFloat(String(x).replace(/[^0-9.+-]/g, "")); return Number.isFinite(v) && Math.abs(v) >= 100 ? v : null; };
+  const ln = x => { if (x == null || x === "") return null; const v = parseFloat(String(x).replace(/^[ou]/i, "")); return Number.isFinite(v) ? v : null; };
+  const ml = o.moneyline, ps = o.pointSpread, tt = o.total;
+  const out = {
+    book: o.provider?.name || "DraftKings",
+    ml: ml ? { home: am(ml.home?.close?.odds), away: am(ml.away?.close?.odds), openHome: am(ml.home?.open?.odds), openAway: am(ml.away?.open?.odds) } : null,
+    spread: ps ? { home: ln(ps.home?.close?.line), homeOdds: am(ps.home?.close?.odds), away: ln(ps.away?.close?.line), awayOdds: am(ps.away?.close?.odds),
+      openHome: ln(ps.home?.open?.line), openHomeOdds: am(ps.home?.open?.odds), openAwayOdds: am(ps.away?.open?.odds) } : null,
+    total: tt || o.overUnder != null ? { line: ln(tt?.over?.close?.line) ?? o.overUnder ?? null, over: am(tt?.over?.close?.odds), under: am(tt?.under?.close?.odds),
+      openLine: ln(tt?.over?.open?.line), openOver: am(tt?.over?.open?.odds), openUnder: am(tt?.under?.open?.odds) } : null,
+  };
+  if (out.spread && out.spread.home == null && o.spread != null) out.spread.home = +o.spread;
+  return out;
+}
+
+// Kalshi team codes that differ from ESPN's abbreviations
+const KALSHI_ALIAS = { UTAH: ["UTA"], NY: ["NYK"], GS: ["GSW"], NO: ["NOP", "NOR"], SA: ["SAS"], WSH: ["WAS"], PHX: ["PHO"], BKN: ["BRK", "BKN"], CHA: ["CHO"],
+  NJ: ["NJD"], LA: ["LAK", "LAR", "LA"], SJ: ["SJS"], TB: ["TBL", "TB"], JAX: ["JAC"], LAR: ["LA"], VGK: ["VEG", "VGS", "VGK"], CBJ: ["CLB", "CBJ"], MTL: ["MON", "MTL"], NSH: ["NAS", "NSH"] };
+const kCodes = abbr => [abbr, ...(KALSHI_ALIAS[abbr] || [])];
+const MON = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
+const etDay = iso => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date(iso));
+/**
+ * Attach Kalshi game markets (winner / spread ladder / total ladder) to the ESPN games they belong to.
+ * Event tickers look like KXNBASPREAD-26NOV10LACPHX: date (ET) + the two team codes. Exported for tests.
+ */
+export function matchKalshiGames(games, markets, slugs = {}) {
+  const fee = p => Math.ceil(0.07 * p * (1 - p) * 100 - 1e-9) / 100;
+  for (const g of games) g.kalshi = { ml: {}, spread: [], total: [] };
+  for (const [kind, list] of Object.entries(markets)) for (const m of list || []) {
+    const ev = String(m.event_ticker || ""), mm = /^[A-Z0-9]+-(\d{2})([A-Z]{3})(\d{2})([A-Z]+)$/.exec(ev); if (!mm) continue;
+    const kday = `20${mm[1]}-${String(MON[mm[2]] || 0).padStart(2, "0")}-${mm[3]}`, pair = mm[4];
+    // same two teams, nearest date (teams can meet on back-to-back days)
+    const g = games.filter(x => kCodes(x.away.abbreviation).some(a => kCodes(x.home.abbreviation).some(h => pair === a + h || pair === h + a)))
+      .map(x => ({ x, d: Math.abs(Date.parse(etDay(x.date)) - Date.parse(kday)) })).filter(c => c.d <= 86400e3).sort((p, q) => p.d - q.d)[0]?.x;
+    if (!g) continue;
+    const ya = parseFloat(m.yes_ask_dollars), na = parseFloat(m.no_ask_dollars);
+    if (!(ya > 0.02 && ya < 0.98 && na > 0.02 && na < 0.98) || ya + na > 1.12) continue;
+    const series = ev.split("-")[0].toLowerCase();
+    const q = { ya: +ya.toFixed(4), na: +na.toFixed(4), o: toAmerican(Math.min(0.99, ya + fee(ya))), u: toAmerican(Math.min(0.99, na + fee(na))), vol: Math.round(parseFloat(m.volume_fp || 0)), tk: m.ticker,
+      href: slugs[series] ? `https://kalshi.com/markets/${series}/${slugs[series]}/${ev.toLowerCase()}` : `https://kalshi.com/markets/${series}` };
+    const suffix = String(m.ticker).slice(ev.length + 1), code = suffix.replace(/\d+$/, "");
+    const team = [g.home.abbreviation, g.away.abbreviation].find(t => kCodes(t).includes(code));
+    if (kind === "ml") { if (team) g.kalshi.ml[team] = q; }
+    else if (kind === "spread") { if (team && m.floor_strike != null) g.kalshi.spread.push({ team, l: +m.floor_strike, ...q }); }
+    else if (kind === "total") { if (m.floor_strike != null) g.kalshi.total.push({ l: +m.floor_strike, ...q }); }
+  }
+  for (const g of games) { g.kalshi.spread.sort((a, b) => a.team.localeCompare(b.team) || a.l - b.l); g.kalshi.total.sort((a, b) => a.l - b.l); }
+  return games;
+}
+
+/** Each team's recent results (points for/against), reaching into last season when this one is young. */
+async function teamForm(cfg, teamId) {
+  const rows = r => (r?.events || []).filter(e => e.competitions?.[0]?.status?.type?.completed).map(e => {
+    const c = e.competitions[0], me = c.competitors.find(x => x.team?.id === String(teamId)), op = c.competitors.find(x => x.team?.id !== String(teamId));
+    const pf = me?.score?.value ?? parseFloat(me?.score?.displayValue), pa = op?.score?.value ?? parseFloat(op?.score?.displayValue);
+    return me && op && Number.isFinite(pf) && Number.isFinite(pa) ? { date: e.date.slice(0, 10), opp: op.team.abbreviation, home: me.homeAway === "home", pf, pa } : null;
+  }).filter(Boolean);
+  const cur = await get(`${SITE}/${cfg.path}/teams/${teamId}/schedule`);
+  let out = rows(cur);
+  if (out.length < 10 && cur?.requestedSeason?.year) out = rows(await get(`${SITE}/${cfg.path}/teams/${teamId}/schedule?season=${cur.requestedSeason.year - 1}`)).concat(out);
+  return out.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 20);
 }
 
 async function rosterOf(cfg, teamId) {
@@ -289,6 +361,22 @@ export function parseKalshiMarket(sport, stat, m, quotes, slug) {
   });
 }
 
+/** Kalshi game markets (winner, spread ladder, total ladder) for every league, plus each series' URL slug. */
+async function fetchKalshiGames() {
+  const out = {}, slugs = {};
+  for (const [sport, cfg] of Object.entries(SPORTS)) for (const [kind, series] of Object.entries(cfg.kalshiGames || {})) {
+    try { slugs[series.toLowerCase()] = String((await get(`${KALSHI_API}/series/${series}`))?.series?.title || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""); } catch {}
+    let cursor = "";
+    for (let page = 0; page < 10; page++) {
+      const r = await get(`${KALSHI_API}/markets?series_ticker=${series}&status=open&limit=200${cursor ? `&cursor=${cursor}` : ""}`);
+      await new Promise(res => setTimeout(res, 150));
+      ((out[sport] ||= {})[kind] ||= []).push(...(r?.markets || []));
+      cursor = r?.cursor; if (!cursor) break;
+    }
+  }
+  return { markets: out, slugs };
+}
+
 async function fetchKalshi() {
   const quotes = {}; let n = 0;
   for (const [sport, cfg] of Object.entries(SPORTS)) for (const [series, stat] of Object.entries(cfg.kalshi || {})) {
@@ -306,7 +394,7 @@ async function fetchKalshi() {
 }
 
 // ---------------------------------------------------------------- build
-async function buildSport(key, cfg, quotes) {
+async function buildSport(key, cfg, quotes, gameMarkets) {
   const teamsRes = await get(`${SITE}/${cfg.path}/teams`);
   const teams = (teamsRes?.sports?.[0]?.leagues?.[0]?.teams || []).map(({ team: t }) => ({ id: t.id, abbr: t.abbreviation, name: t.displayName, color: "#" + (t.color || "64748b"), logo: t.logos?.[0]?.href }));
   const games = await upcomingGames(cfg);
@@ -440,7 +528,13 @@ async function buildSport(key, cfg, quotes) {
     }
     p.dvp = out;
   }
-  return { name: cfg.name, teams, stats, players, teamCount: teams.length };
+  // game lines: DraftKings (via ESPN), Kalshi game markets, and each side's recent scoring
+  const formIds = [...new Set(games.flatMap(g => [g.home.id, g.away.id]))];
+  const forms = Object.fromEntries(await pool(formIds, 6, async id => [id, await teamForm(cfg, id).catch(() => [])]));
+  matchKalshiGames(games, gameMarkets?.markets?.[key] || {}, gameMarkets?.slugs || {});
+  const gamesOut = games.map(g => ({ id: g.id, date: g.date, home: g.home.abbreviation, away: g.away.abbreviation, dk: g.lines, kalshi: g.kalshi,
+    form: { [g.home.abbreviation]: forms[g.home.id] || [], [g.away.abbreviation]: forms[g.away.id] || [] } }));
+  return { name: cfg.name, teams, stats, players, teamCount: teams.length, games: gamesOut };
 }
 
 async function main() {
@@ -449,6 +543,8 @@ async function main() {
     try { odds = await fetchOdds(); await mkdir(dirname(ODDS_CACHE), { recursive: true }); await writeFile(ODDS_CACHE, JSON.stringify(odds)); }
     catch (e) { console.warn("odds fetch failed, using cache:", e.message); }
   }
+  let gameMarkets = { markets: {}, slugs: {} };
+  if (KALSHI) { try { gameMarkets = await fetchKalshiGames(); } catch (e) { console.warn("kalshi games failed:", e.message); } }
   let kalshi = {}, kalshiFetched = null;
   if (KALSHI) { try { kalshi = await fetchKalshi(); kalshiFetched = new Date().toISOString(); } catch (e) { console.warn("kalshi failed:", e.message); } }
   const quotes = { ...(odds.quotes || {}) };
@@ -458,7 +554,7 @@ async function main() {
   const out = { generated: new Date().toISOString(), live: true, sources: { espn: new Date().toISOString(), sportsbooks: odds.fetched || null, kalshi: kalshiFetched }, sports: {} };
   const only = (process.env.SPORTS || "nba,nfl,nhl,mlb").split(",");
   for (const key of only) {
-    try { out.sports[key] = await buildSport(key, SPORTS[key], quotes); }
+    try { out.sports[key] = await buildSport(key, SPORTS[key], quotes, gameMarkets); }
     catch (e) { console.warn(`${key} failed:`, e); }
     const ps = out.sports[key]?.players || [];
     console.log(`${key}: ${ps.length} players, ${ps.reduce((a, p) => a + Object.keys(p.market).length, 0)} props with market prices`);

@@ -56,3 +56,30 @@ test("odds helpers", () => {
   assert.equal(normName("Jaren Jackson Jr."), normName("Jaren Jackson"));
   assert.equal(normName("Nikola Jokić"), "nikolajokic");
 });
+
+test("game lines: DraftKings block from ESPN and Kalshi game markets matched to games", async () => {
+  const { parseDK, matchKalshiGames } = await import("../scripts/fetch-data.mjs");
+  const dk = parseDK({ provider: { name: "DraftKings" }, overUnder: 222.5, spread: -15.5,
+    moneyline: { home: { close: { odds: "-1040" }, open: { odds: "-1260" } }, away: { close: { odds: "+670" }, open: { odds: "EVEN" } } },
+    pointSpread: { home: { close: { line: "-15.5", odds: "-105" } }, away: { close: { line: "+15.5", odds: "-115" } } },
+    total: { over: { close: { line: "o222.5", odds: "-105" }, open: { line: "o219.5" } }, under: { close: { line: "u222.5", odds: "-115" } } } });
+  assert.deepEqual([dk.ml.home, dk.ml.away, dk.ml.openAway], [-1040, 670, 100]);
+  assert.deepEqual([dk.spread.home, dk.spread.homeOdds, dk.spread.away], [-15.5, -105, 15.5]);
+  assert.deepEqual([dk.total.line, dk.total.over, dk.total.under, dk.total.openLine], [222.5, -105, -115, 219.5]);
+  // two OKC @ POR games on back-to-back days: each Kalshi event goes to its own date
+  const team = (abbreviation, id) => ({ abbreviation, id });
+  const games = [{ date: "2026-11-11T03:00Z", home: team("POR", 1), away: team("OKC", 2) }, { date: "2026-11-12T03:00Z", home: team("POR", 1), away: team("OKC", 2) },
+    { date: "2026-11-11T02:00Z", home: team("UTAH", 3), away: team("MIA", 4) }];
+  const mk = (ev, suffix, extra = {}) => ({ event_ticker: ev, ticker: `${ev}-${suffix}`, yes_ask_dollars: "0.40", no_ask_dollars: "0.62", ...extra });
+  matchKalshiGames(games, {
+    ml: [mk("KXNBAGAME-26NOV10OKCPOR", "OKC"), mk("KXNBAGAME-26NOV11OKCPOR", "POR"), mk("KXNBAGAME-26NOV10MIAUTA", "UTA")],
+    spread: [mk("KXNBASPREAD-26NOV10MIAUTA", "UTA7", { floor_strike: 6.5 })],
+    total: [mk("KXNBATOTAL-26NOV10MIAUTA", "225", { floor_strike: 224.5 })],
+  }, { kxnbagame: "nba-game" });
+  assert.deepEqual(Object.keys(games[0].kalshi.ml), ["OKC"]);
+  assert.deepEqual(Object.keys(games[1].kalshi.ml), ["POR"]);
+  assert.deepEqual(Object.keys(games[2].kalshi.ml), ["UTAH"]);
+  assert.equal(games[2].kalshi.spread[0].team, "UTAH"); assert.equal(games[2].kalshi.spread[0].l, 6.5);
+  assert.equal(games[2].kalshi.total[0].l, 224.5);
+  assert.equal(games[0].kalshi.ml.OKC.href, "https://kalshi.com/markets/kxnbagame/nba-game/kxnbagame-26nov10okcpor");
+});

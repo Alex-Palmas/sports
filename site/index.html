@@ -23,6 +23,7 @@
     <nav class="views" id="viewNav" aria-label="Sections">
       <button class="view-btn active" data-view="props"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Props</span></button>
       <button class="view-btn" data-view="edge" id="edgeBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="long">Edge Board</span><span class="short">Edge</span></button>
+      <button class="view-btn" data-view="games" id="gamesBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 4v16M3 12h18" fill="none" stroke="currentColor" stroke-width="2"/></svg><span class="long">Game Lines</span><span class="short">Lines</span></button>
       <button class="view-btn" data-view="bets" id="betsBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="long">My Bets</span><span class="short">Bets</span></button>
       <button class="view-btn test-btn" data-view="testing" id="testBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="testMenu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.7 3h10.6a2 2 0 0 0 1.7-3l-5-9V3M7.5 14h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Testing</span><svg class="caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </nav>
@@ -54,6 +55,7 @@
         </div>
       </div>
       <div class="alert-bar" id="alertBar" hidden></div>
+      <div id="gamePanel"></div>
       <div class="list-head"><span>Player / Prop</span><span>L5</span><span>L10</span><span>L20</span><span title="Head to head vs tonight's opponent">H2H</span></div>
       <ul class="prop-list" id="propList"></ul>
     </aside>
@@ -61,6 +63,13 @@
     <section class="detail" id="detail"></section>
   </main>
 
+  <section class="arb-view edge-view" id="gamesView" hidden>
+    <div class="arb-head"><div>
+      <h1>Game Lines</h1>
+      <p class="pl-sub">Moneyline, spread and total for every game: DraftKings and Kalshi prices, where each line opened, our projected score and the EV on each price, plus each side's recent scoring. Switch sport at the top.</p>
+    </div></div>
+    <div id="gamesBody"></div>
+  </section>
   <section class="arb-view edge-view" id="edgeView" hidden>
     <div class="arb-head"><div>
       <h1>Edge Board</h1>
@@ -162,6 +171,7 @@
   <script src="gametracker.js"></script>
   <script src="latency.js"></script>
   <script src="crypto.js"></script>
+  <script src="games.js"></script>
   <script src="kalshi.js"></script>
   <script src="app.js"></script>
 </body>
