@@ -12,15 +12,20 @@
     return `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
   }
   const evTxt = e => (e >= 0 ? "+" : "") + (e * 100).toFixed(1) + "%";
-  let opts = { league: "all", minEv: 0.02, minConf: "any", marketOnly: true, q: "", show: 60, day: "all" };
+  let opts = { league: "all", minEv: 0.02, grades: ["High", "Medium", "Low"], sort: "ev", marketOnly: true, q: "", show: 60, day: "all" };
   // local calendar day of a game, and a friendly label for it
   const dayKey = iso => { if (!iso) return ""; const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const dayLabel = k => { const t = dayKey(new Date().toISOString()), tm = dayKey(new Date(Date.now() + 86400e3).toISOString());
     return k === t ? "Today" : k === tm ? "Tomorrow" : k ? new Date(k + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }) : "Date TBD"; };
-  const RANK = { Low: 0, Medium: 1, High: 2 }, MIN = { any: 0, medium: 1, high: 2 };
+  const GRADES = ["High", "Medium", "Low"];
+  const SORTS = { ev: "Best EV", conf: "Highest confidence", adj: "EV × confidence" };
+  let gradeCounts = {};
   /** Confidence badge: grade + score, with the reasons in the tooltip. */
   const confBadge = c => c ? `<span class="conf conf-${c.grade.toLowerCase()}" title="${esc(c.why.length ? c.why.map(w => `−${w.pts} ${w.txt}`).join("\n") : "Nothing lowers confidence")}"><i></i>${c.grade} ${c.score}</span>` : "";
   try { Object.assign(opts, JSON.parse(localStorage.getItem("proplab:edge") || "{}")); } catch {}
+  // older saved setting (a minimum grade) → the grade chips
+  if (opts.minConf) { opts.grades = { high: ["High"], medium: ["High", "Medium"] }[opts.minConf] || opts.grades; delete opts.minConf; }
+  if (!Array.isArray(opts.grades) || !opts.grades.length) opts.grades = ["High", "Medium", "Low"];
   const save = () => { try { localStorage.setItem("proplab:edge", JSON.stringify({ ...opts, show: 60 })); } catch {} };
 
   /** Chips explaining what drives a projection. */
@@ -40,19 +45,24 @@
   }
 
   function rows(DATA) {
-    const M = window.PropModel; const out = [];
+    const M = window.PropModel; const out = []; gradeCounts = {};
     for (const [lg, sp] of Object.entries(DATA.sports)) {
       if (opts.league !== "all" && opts.league !== lg) continue;
       for (const p of sp.players || []) for (const stat of Object.keys(p.lines || {})) {
         const r = M.bestBet(p, stat, lg); if (!r) continue;
         const label = sp.stats.find(s => s.key === stat)?.label || stat;
         if (opts.q && !`${p.name} ${p.team} ${label}`.toLowerCase().includes(opts.q.toLowerCase())) continue;
-        if (RANK[r.confidence?.grade] < MIN[opts.minConf]) continue;
         if (r.best) { if (r.best.ev < opts.minEv) continue; }
         else if (opts.marketOnly) continue;
+        const g = r.confidence?.grade || "Low";
+        gradeCounts[g] = (gradeCounts[g] || 0) + 1;   // counted before the grade filter, for the chips
+        if (!opts.grades.includes(g)) continue;
         // no market: rank by how far the projection is from the line, in standard deviations
         const z = r.proj.sd ? Math.abs(r.proj.mean - r.line) / Math.max(r.proj.sd, 1) : 0;
-        out.push({ lg, sp, p, stat, label, r, score: r.best ? r.best.ev : z * 0.05 - 1 });
+        const ev = r.best ? r.best.ev : z * 0.05 - 1, conf = r.confidence?.score ?? 0;
+        const score = opts.sort === "conf" ? conf * 10 + Math.max(-1, Math.min(1, ev))   // confidence first, EV breaks ties
+          : opts.sort === "adj" && r.best ? ev * conf / 100 : ev;
+        out.push({ lg, sp, p, stat, label, r, score });
       }
     }
     return out.sort((a, b) => b.score - a.score);
@@ -94,7 +104,8 @@
         <label>League <select id="edgeLeague"><option value="all">All</option>${leagues.map(([k, s]) => `<option value="${k}"${opts.league === k ? " selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>
         <label>Minimum EV <select id="edgeMin">${[[-1, "Any"], [0, "0%+"], [0.02, "2%+"], [0.05, "5%+"], [0.1, "10%+"]].map(([v, l]) => `<option value="${v}"${+opts.minEv === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
         <label>Day <select id="edgeDay"><option value="all">All days</option>${days.map(d => `<option value="${d}"${opts.day === d ? " selected" : ""}>${esc(dayLabel(d))}</option>`).join("")}</select></label>
-        <label>Confidence <select id="edgeConf">${[["any", "Any"], ["medium", "Medium+"], ["high", "High only"]].map(([v, l]) => `<option value="${v}"${opts.minConf === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Sort <select id="edgeSort">${Object.entries(SORTS).map(([v, l]) => `<option value="${v}"${opts.sort === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+        <div class="conf-filter" role="group" aria-label="Confidence"><span class="cf-label">Confidence</span>${GRADES.map(g => `<button type="button" class="conf conf-${g.toLowerCase()} cf-chip${opts.grades.includes(g) ? " on" : ""}" data-grade="${g}" aria-pressed="${opts.grades.includes(g)}"><i></i>${g} <b>${gradeCounts[g] || 0}</b></button>`).join("")}</div>
         <label class="edge-search">Search <input id="edgeQ" type="search" placeholder="Player, team or stat" value="${esc(opts.q)}" autocomplete="off"/></label>
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
@@ -119,7 +130,13 @@
     q("#edgeLeague").onchange = e => { opts.league = e.target.value; save(); render(el, DATA, api); };
     q("#edgeMin").onchange = e => { opts.minEv = +e.target.value; save(); render(el, DATA, api); };
     q("#edgeDay").onchange = e => { opts.day = e.target.value; save(); render(el, DATA, api); };
-    q("#edgeConf").onchange = e => { opts.minConf = e.target.value; save(); render(el, DATA, api); };
+    q("#edgeSort").onchange = e => { opts.sort = e.target.value; save(); render(el, DATA, api); };
+    el.querySelectorAll(".cf-chip").forEach(b => b.onclick = () => {
+      const g = b.dataset.grade, on = opts.grades.includes(g);
+      opts.grades = on ? opts.grades.filter(x => x !== g) : GRADES.filter(x => x === g || opts.grades.includes(x));
+      if (!opts.grades.length) opts.grades = [g];   // never filter everything out
+      save(); render(el, DATA, api);
+    });
     q("#edgeMarket").onchange = e => { opts.marketOnly = e.target.checked; save(); render(el, DATA, api); };
     q("#edgeQ").oninput = e => { opts.q = e.target.value; clearTimeout(q("#edgeQ")._t); q("#edgeQ")._t = setTimeout(() => { save(); render(el, DATA, api); setTimeout(() => { const n = el.querySelector("#edgeQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
     if (q("#edgeMore")) q("#edgeMore").onclick = () => { opts.show += 60; render(el, DATA, api); };
