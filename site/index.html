@@ -22,7 +22,9 @@
     <nav class="sports" id="sportTabs" role="tablist"></nav>
     <nav class="views" id="viewNav" aria-label="Sections">
       <button class="view-btn active" data-view="props"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span>Props</span></button>
-      <button class="view-btn" data-view="arb" id="arbBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14l-4-4M20 16H6l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Arbitrage</span></button>
+      <button class="view-btn" data-view="edge" id="edgeBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="long">Edge Board</span><span class="short">Edge</span></button>
+      <button class="view-btn" data-view="bets" id="betsBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="long">My Bets</span><span class="short">Bets</span></button>
+      <button class="view-btn" data-view="arb" id="arbBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h14l-4-4M20 16H6l4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="long">Arbitrage</span><span class="short">Arb</span></button>
       <button class="view-btn" data-view="lat" id="latBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 9v4l3 2M9 2h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span class="long">Kalshi Latency Study</span><span class="short">Latency</span></button>
       <button class="view-btn" data-view="crypto" id="cryptoBtn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v16M11 4v2M11 18v2M8 6h6a3 3 0 0 1 0 6H8h7a3 3 0 0 1 0 6H8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="long">Crypto Bot</span><span class="short">Crypto</span></button>
     </nav>
@@ -49,12 +51,31 @@
           <button data-side="under">Under</button>
         </div>
       </div>
+      <div class="alert-bar" id="alertBar" hidden></div>
       <div class="list-head"><span>Player / Prop</span><span>L5</span><span>L10</span><span>L20</span></div>
       <ul class="prop-list" id="propList"></ul>
     </aside>
 
     <section class="detail" id="detail"></section>
   </main>
+
+  <section class="arb-view edge-view" id="edgeView" hidden>
+    <div class="arb-head"><div>
+      <h1>Edge Board</h1>
+      <p class="pl-sub">Tonight's props ranked by expected value. Each projection starts from recent form and adjusts for minutes, defense against the player's position, home/away, rest, teammates out and blowout risk; open a prop to see the full breakdown. Not betting advice.</p>
+    </div></div>
+    <div id="edgeBody"></div>
+  </section>
+
+  <section class="arb-view bets-view" id="betsView" hidden>
+    <div class="arb-head"><div>
+      <h1>My Bets</h1>
+      <p class="pl-sub">Track your bets, see whether you beat the closing line, size stakes with a quarter-Kelly calculator, and keep a watchlist. Saved in this browser only.</p>
+    </div></div>
+    <div id="betsBody"></div>
+  </section>
+
+  <dialog id="trackDlg" class="track-dlg" aria-label="Track a bet"></dialog>
 
   <section class="arb-view" id="arbView" hidden>
     <div class="arb-head">
@@ -120,6 +141,9 @@
 
   <script src="data.js"></script>
   <script src="arb.js"></script>
+  <script src="model.js"></script>
+  <script src="edge.js"></script>
+  <script src="bets.js"></script>
   <script src="simulator.js"></script>
   <script src="simui.js"></script>
   <script src="gametracker.js"></script>

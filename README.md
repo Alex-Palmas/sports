@@ -30,6 +30,20 @@ Kalshi needs no setup and refreshes every 3 hours.
 ### Arbitrage
 The **⇄ Arbitrage** view scans every prop for an over at one book plus an under at another that guarantees a profit (margin = 1/(1/d₁ + 1/d₂) − 1 with decimal odds). It shows the stake split for any total, and flags **middles**, where the over line is below the under line so both legs can win, along with how often the player landed in that window over their last 20 games. Arbs need prices from several books, so add `ODDS_API_KEY`. Prices move and books limit arbers, so re-check both legs before betting.
 
+## Betting tools
+- **Edge Board:** tonight's props ranked by expected value. The projection starts from a recency-weighted average and adjusts for:
+  - minutes trend;
+  - defense vs. the player's position (guards, forwards and centers; QB/RB/WR/TE; forwards and defense);
+  - home/away and rest (back-to-backs);
+  - teammates ruled out tonight (only the part of recent form that came from games with them);
+  - blowout risk from the spread.
+
+  The probability is 75% this projection (normal or Poisson) and 25% the last-20 hit rate. For a bet's EV it is blended 50/50 with the market's vig-free price at that line, and prices beyond ±400 aren't ranked. All logic is in `site/model.js`.
+- **Player page:** projection breakdown, teammates-out table (with/without averages and hit rates), matchup vs. position, minutes trend, rest splits, game script, line movement (opening vs. now per book), line history ("when his line was this high he went over X of N"), and same-game correlated props.
+- **My Bets:** track bets with one tap. Closing-line value is recorded each time the app is opened before kick-off, bets settle automatically from ESPN box scores, and stakes are suggested by a quarter-Kelly calculator. Bets are stored in your browser.
+- **Watchlist & alerts:** star a prop; the app then shows line moves, new injuries and new edges since your last visit.
+- `scripts/fetch-data.mjs` adds tonight's injury report, ESPN's spread and total, rest days and defense vs. position. It keeps opening lines and daily line history in `.cache/history.json`, which is carried between workflow runs.
+
 ## Kalshi Latency Study
 `scripts/kalshi-latency.mjs` follows every **NBA and NFL** game live: ESPN's play-by-play against **every Kalshi market for that game** (moneyline, spread, totals, quarters and halves, player props, specials). It finds each game's markets from its Kalshi moneyline event, so it never scans all of Kalshi.
 
