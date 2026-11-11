@@ -1,0 +1,47 @@
+[
+ {
+  "file": "2026-11-10-2158-espn.json",
+  "date": "2026-11-10",
+  "started": "2026-11-10T21:58:13.555Z",
+  "feed": "espn",
+  "leagues": [
+   "nba"
+  ],
+  "games": 5,
+  "gameNames": [
+   "NBA MIL @ NY",
+   "NBA BOS @ PHI",
+   "NBA LAC @ PHX",
+   "NBA MIA @ UTAH",
+   "NBA ORL @ SAC"
+  ],
+  "plays": 1557,
+  "crossings": 243,
+  "measured": 194,
+  "medianFeedDelay": 32.845,
+  "medianFeedDelayNba": 32.845,
+  "medianFeedDelayNfl": null,
+  "medianKalshiDelay": 46.592,
+  "feedFirstShare": 0.6597938144329897,
+  "staleChances": 105,
+  "medianStaleEdge": 0.1,
+  "scoringPlays": 367,
+  "medianGameLineDelay": 22.292,
+  "propMove": 0.295,
+  "propStart": 19.21,
+  "propT50": 40.563,
+  "propT90": 44.655,
+  "propSteps": 2,
+  "propTraded": 1822,
+  "propLeftAtSeen": 0.613,
+  "gameMoved": 173,
+  "gameMove": 0.02,
+  "gameStart": 19.959,
+  "gameT50": 23.044,
+  "gameT90": 29.313,
+  "gameSteps": 1,
+  "gameTraded": 20601,
+  "gameLeftAtSeen": 0,
+  "markets": 4629
+ }
+]
