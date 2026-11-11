@@ -259,7 +259,7 @@
     const st = botState(), ks = window.PropKalshi?.settings?.() || {};
     if (!st.on) return st.stopped ? `Auto bet stopped: ${esc(st.stopped)}` : `Auto bet is off. When on: ${ks.botPct ?? 10}% of your balance per day, max ${money(ks.maxOrder ?? 25)} per bet.`;
     if (st.day !== todayKey()) return `Auto bet on · starts today's budget (${ks.botPct ?? 10}% of balance) at the next check`;
-    return `Auto bet on · today ${money(st.spent || 0)} of ${money(st.budget)} (${st.pct}% of ${money(st.balance)}) · ${st.bets || 0} bet${st.bets === 1 ? "" : "s"}${st.unit != null ? ` · ${money(st.unit)} per bet` : ""}`;
+    return `Auto bet on · today ${money(st.spent || 0)} of ${money(st.budget)} (${st.pct}% of ${money(st.balance)}) · ${st.bets || 0} bet${st.bets === 1 ? "" : "s"}${st.unit != null ? (st.unit < 1 ? " · 1 contract per pick" : ` · ${money(st.unit)} per bet`) : ""}`;
   }
 
   function render(el, DATA, api, fromLive) {
