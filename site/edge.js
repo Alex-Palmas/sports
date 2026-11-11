@@ -315,7 +315,7 @@
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
       ${accuracy(DATA)}
-      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button>
+      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${live.hardNote && Date.now() - live.hardNote.at < 60e3 ? ` · hard refresh: ${esc(live.hardNote.text)}` : ""}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button><button type="button" class="chip sm" id="edgeHard" title="Download the newest player data and Kalshi markets, re-price everything, and search the whole board again">⟳ Hard refresh</button>
         ${window.PropKalshi ? `<label class="check bot-toggle"><input type="checkbox" id="edgeBot"${botState().on ? " checked" : ""}/> Auto bet</label>` : ""}</div>
       ${window.PropKalshi && (botState().on || botState().stopped) ? `<div class="card bot-box${botState().on ? " on" : ""}"><div>${botSummary()}</div>${(botState().log || []).length ? `<details><summary class="pl-sub">Bot activity</summary><ul class="bot-log">${botState().log.slice().reverse().slice(0, 12).map(l => `<li><span class="pl-sub">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span> ${esc(l.text)}</li>`).join("")}</ul></details>` : ""}</div>` : ""}
       <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
@@ -359,6 +359,19 @@
       st.on = true; st.stopped = null; botLog(st, `Turned on (${ks.botBetPct ?? 1}% per bet, up to ${ks.botPct ?? 50}% per day, max ${money(ks.maxOrder)} per bet)`); saveBot(st);
       startLive(el, DATA, api); render(el, DATA, api, true);
       await runBot(DATA); render(el, DATA, api, true);
+    };
+    // hard refresh: newest data.json (new markets, stats, injuries), live prices, every pick re-checked
+    q("#edgeHard").onclick = async e => {
+      const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Searching…";
+      let note = "";
+      try { const newer = await window.PropData?.hard?.(); note = newer ? "new data loaded" : "data already current"; }
+      catch (er) { note = `couldn't load new data (${er.message})`; }
+      const D = live.data || DATA;
+      await refreshLive(D);
+      const st = botState(); if (st.tries && Object.keys(st.tries).length) { st.tries = {}; saveBot(st); }   // retry picks the bot skipped
+      if (st.on) await runBot(D);
+      live.hardNote = { at: Date.now(), text: note };
+      render(el, D, api, true);
     };
     q("#edgeRefresh").onclick = async e => {
       const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Refreshing…";

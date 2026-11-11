@@ -689,17 +689,31 @@
       if (document.querySelector("[data-qbet][data-armed],[data-qbet][data-busy],.qmove")) { setTimeout(() => pullData(true), 60e3); return; }
       const r = await fetch(`data.json?v=${encodeURIComponent(gen || Date.now())}`, { cache: "no-store" }); if (!r.ok) return;
       const d = await r.json(); if (!d?.sports || d.generated === DATA.generated) return;
+      applyData(d);
+    } catch {}
+  }
+  /** Swap in a newer data.json: normalize, hand it to every view, redraw the open one. */
+  function applyData(d) {
+    try {
       prep(d); DATA = d;
       window.PropEdge?.setData?.(d);
       try { window.PropBets.updateClose(d); } catch {}
-      if (state.view === "edge") { await window.PropEdge.refreshLive?.(d); window.PropEdge.render($("#edgeView"), d, api, true); }
+      if (state.view === "edge") { window.PropEdge.render($("#edgeView"), d, api, true); window.PropEdge.refreshLive?.(d).then(ok => { if (ok && state.view === "edge") window.PropEdge.render($("#edgeView"), d, api, true); }); }
       else if (state.view === "bets") window.PropBets.render($("#betsView"), d, api);
       else if (state.view === "games") window.PropGames.render($("#gamesView"), d, api);
       const foot = document.querySelector("#dataStamp"); if (foot) foot.textContent = new Date(d.generated).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     } catch {}
   }
   setInterval(pullData, 2 * 60e3);
-  window.PropData = { pull: pullData, get: () => DATA };
+  /** Hard refresh: download data.json now (skipping every cache) and swap it in if it's newer. */
+  async function hardData() {
+    const r = await fetch(`data.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!r.ok) throw new Error(`data.json ${r.status}`);
+    const d = await r.json(); dataChecked = Date.now();
+    if (d?.sports && d.generated !== DATA.generated) { applyData(d); return true; }
+    return false;
+  }
+  window.PropData = { pull: pullData, hard: hardData, get: () => DATA };
   document.addEventListener("visibilitychange", () => { if (!document.hidden) pullData(); });
   window.PropBets.onChange = () => { if (state.view === "bets") window.PropBets.render($("#betsView"), DATA, api); };
   // "since your last visit" alerts for watched props
