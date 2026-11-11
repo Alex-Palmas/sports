@@ -39,3 +39,11 @@ You have to tick the confirmation box for every order. Filled orders are added t
 ## Opening a bet in the Kalshi app
 
 Every Kalshi price links to its market page on kalshi.com (the game's event page, e.g. `kalshi.com/markets/kxnbapts/nba-player-points/kxnbapts-26nov10orlsac`, where every player and threshold for that game is listed). The links are on the prop page (**Open in Kalshi**), each Kalshi row in Line shopping, Edge Board picks priced on Kalshi, the order ticket, and real bets in My Bets. On a phone with the Kalshi app installed, the phone opens these kalshi.com links in the app; otherwise they open in the browser.
+
+## "Insufficient balance" with money in the account
+
+Kalshi keeps your cash split across exchange shards and fills each order from the shard its market trades on.
+Settings → Test connection lists the balance on each shard. When an order fails with "insufficient balance",
+PropLab looks up the market's shard. If your money is on a different shard, it asks before moving just enough
+over (Kalshi's intra-exchange transfer) and then retries the order once. If the move is refused, the API key may
+need the transfer permission, or you can move the funds on kalshi.com.
