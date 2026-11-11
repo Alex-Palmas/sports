@@ -196,7 +196,7 @@
       const pr = probabilities(p, stat, q.l, proj, league), mine = side === "over" ? pr.over : pr.under, mk = marketProb(q, side);
       const prob = mk == null ? mine : (1 - C.marketWeight) * mine + C.marketWeight * mk;
       const e = ev(prob, price);
-      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null };
+      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null, ya: q.ya ?? null, na: q.na ?? null };
     }
     return { proj, line, probs: base, best, confidence: confidence(p, stat, league, proj, best), fairOver: base ? toAmerican(base.over) : null, fairUnder: base ? toAmerican(base.under) : null };
   }
@@ -294,14 +294,27 @@
       add({ kind: "total", label: `Under ${tt.line}`, price: tt.under, book, model: m ? 1 - m.pOver(tt.line) : null, market: pu }); }
     const K = g.kalshi || {};
     for (const [team, q] of Object.entries(K.ml || {})) { const [py] = pair(q.o, q.u);
-      add({ kind: "ml", label: `${team} ML`, price: q.o, book: "Kalshi", model: m?.pWin(team), market: py, href: q.href, vol: q.vol }); }
+      add({ kind: "ml", label: `${team} ML`, price: q.o, book: "Kalshi", model: m?.pWin(team), market: py, href: q.href, vol: q.vol, leg: { action: "YES", contract: q.title ? (/win/i.test(q.title) ? q.title : `${q.title} wins`) : `${team} wins`, cents: Math.round(q.ya * 100) } }); }
     for (const q of K.spread || []) { const [py, pn] = pair(q.o, q.u);
-      add({ kind: "spread", label: `${q.team} -${q.l}`, price: q.o, book: "Kalshi", model: m?.pBy(q.team, q.l), market: py, href: q.href, vol: q.vol });
-      add({ kind: "spread", label: `${other(q.team)} +${q.l}`, price: q.u, book: "Kalshi", model: m ? 1 - m.pBy(q.team, q.l) : null, market: pn, href: q.href, vol: q.vol }); }
+      const c = q.title || `${q.team} wins by over ${q.l}`;
+      add({ kind: "spread", label: `${q.team} -${q.l}`, price: q.o, book: "Kalshi", model: m?.pBy(q.team, q.l), market: py, href: q.href, vol: q.vol, leg: { action: "YES", contract: c, cents: Math.round(q.ya * 100) } });
+      add({ kind: "spread", label: `${other(q.team)} +${q.l}`, price: q.u, book: "Kalshi", model: m ? 1 - m.pBy(q.team, q.l) : null, market: pn, href: q.href, vol: q.vol, leg: { action: "NO", contract: c, cents: Math.round(q.na * 100) } }); }
     for (const q of K.total || []) { const [py, pn] = pair(q.o, q.u);
-      add({ kind: "total", label: `Over ${q.l}`, price: q.o, book: "Kalshi", model: m ? m.pOver(q.l) : null, market: py, href: q.href, vol: q.vol });
-      add({ kind: "total", label: `Under ${q.l}`, price: q.u, book: "Kalshi", model: m ? 1 - m.pOver(q.l) : null, market: pn, href: q.href, vol: q.vol }); }
+      const c = q.title || `Over ${q.l} total`;
+      add({ kind: "total", label: `Over ${q.l}`, price: q.o, book: "Kalshi", model: m ? m.pOver(q.l) : null, market: py, href: q.href, vol: q.vol, leg: { action: "YES", contract: c, cents: Math.round(q.ya * 100) } });
+      add({ kind: "total", label: `Under ${q.l}`, price: q.u, book: "Kalshi", model: m ? 1 - m.pOver(q.l) : null, market: pn, href: q.href, vol: q.vol, leg: { action: "NO", contract: c, cents: Math.round(q.na * 100) } }); }
     return { model: m, bets: out.sort((a, b) => b.ev - a.ev) };
+  }
+
+  /**
+   * Which Kalshi contract to buy for a prop pick. Kalshi lists each strike as a yes/no market
+   * "Player: N+ stat": Over (N−0.5) = buy YES, Under (N−0.5) = buy NO. Price in cents (the ask, before fees).
+   */
+  function kalshiLeg(side, line, label, best) {
+    const n = Math.floor(line) + 1, action = side === "over" ? "YES" : "NO";
+    const ask = side === "over" ? best?.ya : best?.na;
+    const cents = ask != null ? Math.round(ask * 100) : best?.price != null ? Math.round(impl(best.price) * 100) : null;
+    return { action, contract: `${n}+ ${label}`, cents };
   }
 
   /** How often two props hit together across games both players played (phi coefficient). */
@@ -331,6 +344,6 @@
     return { prob: pp, line: dl };
   }
 
-  const api = { seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
+  const api = { kalshiLeg, seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropModel = api;
 })(typeof window !== "undefined" ? window : globalThis);
