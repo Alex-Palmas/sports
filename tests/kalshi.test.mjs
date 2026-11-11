@@ -30,6 +30,11 @@ test("order body: over buys YES as a bid; under buys NO as a YES ask at 1 - pric
   assert.deepEqual(y, { ticker: "KXNBAPTS-X-25", client_order_id: "c1", side: "bid", count: "7", price: "0.56", time_in_force: "immediate_or_cancel", self_trade_prevention_type: "taker_at_cross" });
   const n = K.orderBody({ ticker: "T", buy: "no", contracts: 3, price: 0.41, clientId: "c2" });
   assert.equal(n.side, "ask"); assert.equal(n.price, "0.59");
+  // round-cent prices keep two decimals (Kalshi rejects "0.5" as an invalid order)
+  assert.equal(K.orderBody({ ticker: "T", buy: "yes", contracts: 1, price: 0.5, clientId: "c" }).price, "0.50");
+  assert.equal(K.orderBody({ ticker: "T", buy: "no", contracts: 1, price: 0.7, clientId: "c" }).price, "0.30");
+  assert.equal(K.orderBody({ ticker: "T", buy: "yes", contracts: 1, price: 0.4550, clientId: "c" }).price, "0.4550");
+  assert.equal(K.orderBody({ ticker: "T", buy: "yes", contracts: 3, price: 0.1, clientId: "c" }).count, "3");
   assert.throws(() => K.orderBody({ ticker: "T", buy: "yes", contracts: 0, price: 0.5 }));
   assert.throws(() => K.orderBody({ ticker: "T", buy: "yes", contracts: 1, price: 1 }));
 });

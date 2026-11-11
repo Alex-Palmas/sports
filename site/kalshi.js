@@ -77,7 +77,8 @@
   // ---------------------------------------------------------------- orders (pure)
   /** Kalshi's taker fee in dollars for C contracts at price P: ceil(0.07·C·P·(1−P)) to the cent. */
   const takerFee = (C, P) => Math.ceil(0.07 * C * P * (1 - P) * 100 - 1e-9) / 100;
-  const fmtPrice = x => String(+x.toFixed(4));
+  // Kalshi wants 2–4 decimals ("0.50", not "0.5"): cents as "0.xx", sub-cent prices keep 4 places
+  const fmtPrice = x => { const c = Math.round(x * 10000) / 10000; return Math.abs(c * 100 - Math.round(c * 100)) < 1e-6 ? c.toFixed(2) : c.toFixed(4); };
   /**
    * V2 order body. The V2 endpoint quotes everything from the YES leg: buying YES is a `bid` at the
    * YES price; buying NO at q is the same as selling YES (`ask`) at 1 − q.
