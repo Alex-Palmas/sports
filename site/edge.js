@@ -54,11 +54,13 @@
     const d = Math.round(now * 100) - Math.round(was * 100); if (!d) return "";
     return ` <span class="kmove ${d > 0 ? "up" : "down"}" title="Was ${Math.round(was * 100)}¢">${d > 0 ? "▲" : "▼"}${Math.abs(d)}¢</span>`;
   }
+  let liveHidden = new Set();
   function rows(DATA) {
-    const M = window.PropModel; const out = []; gradeCounts = {}; statCounts = {};
+    const M = window.PropModel; const out = []; liveHidden = new Set(); gradeCounts = {}; statCounts = {};
     for (const [lg, sp] of Object.entries(DATA.sports)) {
       if (opts.league !== "all" && opts.league !== lg) continue;
       for (const p of sp.players || []) for (const stat of Object.keys(p.lines || {})) {
+        if (gameStarted(lg, p)) { liveHidden.add(`${lg}|${p.team}`); continue; }   // in progress or over: not a pre-game bet
         const r = M.bestBet(p, stat, lg); if (!r) continue;
         const label = sp.stats.find(s => s.key === stat)?.label || stat;
         if (opts.q && !`${p.name} ${p.team} ${label}`.toLowerCase().includes(opts.q.toLowerCase())) continue;
@@ -126,11 +128,37 @@
     }
     return out;
   }
+  // ---------------------------------------------------------------- which games have started (ESPN)
+  // A game counts as started if its scheduled time has passed OR ESPN says it's in progress/over.
+  // Started games leave the board (pre-game edges don't apply in-game) and the bot never bets them.
+  const ESPN_PATH = { nba: "basketball/nba", nfl: "football/nfl", nhl: "hockey/nhl", mlb: "baseball/mlb" };
+  live.started = []; live.statusAt = null;
+  async function refreshStatus(DATA) {
+    const out = [];
+    await Promise.all(Object.keys(ESPN_PATH).filter(lg => DATA?.sports?.[lg]?.players?.length).map(async lg => {
+      const r = await fetch(`https://site.api.espn.com/apis/site/v2/sports/${ESPN_PATH[lg]}/scoreboard`, { cache: "no-store" }).catch(() => null);
+      const j = r?.ok ? await r.json().catch(() => null) : null;
+      for (const e of j?.events || []) {
+        const state = e.status?.type?.state;   // pre | in | post
+        if (!state || state === "pre") continue;
+        out.push({ lg, t: Date.parse(e.date), state, teams: (e.competitions?.[0]?.competitors || []).map(c => c.team?.abbreviation).filter(Boolean) });
+      }
+    }));
+    live.started = out; live.statusAt = Date.now();
+  }
+  /** Has this player's game started (by the clock, or by ESPN's live status)? */
+  function gameStarted(lg, p, now = Date.now()) {
+    const t = Date.parse(p.gameDate || "");
+    if (t && t <= now) return true;
+    return live.started.some(g => g.lg === lg && g.teams.includes(p.team) && (!t || !g.t || Math.abs(g.t - t) < 8 * 3600e3));
+  }
+
   async function refreshLive(DATA, force) {
     const K = window.PropKalshi, M = window.PropModel;
     if (live.busy || !K?.markets) return false;
     if (!force && live.at && live.atData === DATA && Date.now() - live.at < 15e3) return true;   // just refreshed this data
     live.tried = true;
+    if (!live.statusAt || Date.now() - live.statusAt > 30e3) await refreshStatus(DATA).catch(() => {});   // live games, even without Kalshi prices
     const qs = kalshiQuotes(DATA); if (!qs.length) return false;
     live.busy = true;
     try {
@@ -262,6 +290,7 @@
         Object.assign(st, sizes());
         // each bet: its % of the balance (at least one contract), never past today's limit
         const k = pickKey(x), b = x.r.best;
+        if (gameStarted(x.lg, x.p) || Date.parse(x.p.gameDate || "") < Date.now() + 2 * 60e3) continue;   // never bet a game in progress
         const left = +(st.budget - st.spent).toFixed(2), amount = Math.min(left, Math.max(st.unit, 1));
         const ask = b.side === "over" ? b.ya : b.na, oneContract = ask != null ? ask + 0.02 : 0.2;   // price + fee
         if (left >= oneContract) st.full = false;   // the daily limit was raised
@@ -338,7 +367,7 @@
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
       ${accuracy(DATA)}
-      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${live.hardNote && Date.now() - live.hardNote.at < 90e3 ? ` · ${esc(live.hardNote.text)}` : ""}${live.lastHard ? ` · next hard refresh in ${Math.max(1, Math.ceil((live.lastHard + HARD_MS - Date.now()) / 60e3))} min` : ""}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button><button type="button" class="chip sm" id="edgeHard" title="Download the newest player data and Kalshi markets, re-price everything, and search the whole board again">⟳ Hard refresh</button>
+      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${liveHidden.size ? ` · ${Math.ceil(liveHidden.size / 2) || 1} game${liveHidden.size > 2 ? "s" : ""} in progress hidden (no in-game bets)` : ""}${live.hardNote && Date.now() - live.hardNote.at < 90e3 ? ` · ${esc(live.hardNote.text)}` : ""}${live.lastHard ? ` · next hard refresh in ${Math.max(1, Math.ceil((live.lastHard + HARD_MS - Date.now()) / 60e3))} min` : ""}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button><button type="button" class="chip sm" id="edgeHard" title="Download the newest player data and Kalshi markets, re-price everything, and search the whole board again">⟳ Hard refresh</button>
         ${window.PropKalshi ? `<label class="check bot-toggle"><input type="checkbox" id="edgeBot"${botState().on ? " checked" : ""}/> Auto bet</label>` : ""}</div>
       ${window.PropKalshi && (botState().on || botState().stopped) ? `<div class="card bot-box${botState().on ? " on" : ""}"><div>${botSummary()}</div>${(botState().log || []).length ? `<details><summary class="pl-sub">Bot activity</summary><ul class="bot-log">${botState().log.slice().reverse().slice(0, 12).map(l => `<li><span class="pl-sub">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span> ${esc(l.text)}</li>`).join("")}</ul></details>` : ""}</div>` : ""}
       <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
@@ -422,5 +451,5 @@
   }
   /** On page load: if Auto bet was left on, keep it running even before the Edge tab is opened. */
   function boot(el, DATA, api) { if (botState().on) startLive(el, DATA, api); }
-  window.PropEdge = { render, chips, confBadge, refreshLive, live, boot, botSummary, runBot, botState, setData: d => { live.data = d; } };
+  window.PropEdge = { gameStarted, refreshStatus, render, chips, confBadge, refreshLive, live, boot, botSummary, runBot, botState, setData: d => { live.data = d; } };
 })();
