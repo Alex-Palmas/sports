@@ -259,6 +259,18 @@
         <label>"Bet" button amount ($) <input id="setQuick" type="number" min="1" max="1000" step="1" value="${esc(s.quickAmount ?? 5)}"/></label>
         <label class="check"><input id="setOn" type="checkbox"${s.enabled ? " checked" : ""}/> Enable placing orders</label>
       </div>
+      ${root.PropOdds ? (() => { const o = root.PropOdds.settings(), c = root.PropOdds.cache(); return `
+      <h3 class="set-h">Sportsbook odds (The Odds API)</h3>
+      <p class="pl-sub">Adds DraftKings, FanDuel, BetMGM, Caesars and more next to Kalshi. Use your own free key from <a href="https://the-odds-api.com" target="_blank" rel="noopener">the-odds-api.com</a> (500 credits a month free). The key stays in this browser and only your credits are used. Each game's odds cost about ${"2–3"} credits per region.</p>
+      ${o.key ? `<div class="set-key"><span class="tag won">key saved</span> <span class="pl-sub">…${esc(o.key.slice(-4))}${c?.at ? ` · last loaded ${new Date(c.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}: ${c.games} game${c.games === 1 ? "" : "s"}, ${c.spent} credits${c.remaining != null ? ` · ${c.remaining} credits left this month` : ""}` : ""}</span> <button type="button" class="chip sm" id="setOddsForget">Remove key</button></div>` : ""}
+      <label>Odds API key <input id="setOddsKey" type="password" autocomplete="off" spellcheck="false" placeholder="${o.key ? "leave blank to keep the saved key" : "paste your key from the-odds-api.com"}"/></label>
+      <div class="tf-grid">
+        <label>Books <select id="setOddsRegions"><option value="us"${o.regions === "us" ? " selected" : ""}>US books (DraftKings, FanDuel, BetMGM, Caesars, …)</option><option value="us,us2"${o.regions === "us,us2" ? " selected" : ""}>US + Hard Rock, Fliff, … (2× credits)</option></select></label>
+        <label>Credits per load <input id="setOddsMax" type="number" min="1" max="2000" step="1" value="${esc(o.maxCredits)}"/></label>
+        <label>Load automatically every (hours, 0 = only when I tap Load) <input id="setOddsAuto" type="number" min="0" max="168" step="1" value="${esc(o.autoHours)}"/></label>
+      </div>
+      <div class="tf-actions" style="justify-content:flex-start"><button type="button" class="chip" id="setOddsTest">Test key</button><button type="button" class="chip" id="setOddsLoad">Load sportsbook odds now</button></div>
+      <div class="pl-sub" id="setOddsMsg" role="status"></div>`; })() : ""}
       <h3 class="set-h">Auto bet bot</h3>
       <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. Both percentages use your Kalshi balance at the start of the day; each bet is also capped by "Max per order" and is at least one contract. One bet per pick. It only runs while PropLab is open.</p>
       <div class="tf-grid">
@@ -280,6 +292,7 @@
     if ($("#setSignOut")) $("#setSignOut").onclick = () => root.PropAuth?.lock();
     if ($("#setForget")) $("#setForget").onclick = async () => { await forget(); saveSettings({ ...settings(), enabled: false }); openSettings(); };
     const persist = async () => {
+      persistOdds();
       const relay = desktopRelay() || $("#setRelay").value.trim() || "http://localhost:8787";
       if (!desktopRelay() && !/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(relay)) throw new Error("The relay URL must be https://… (or http://localhost for a relay on this computer).");
       const pem = $("#setPem").value.trim(), keyId = $("#setKeyId").value.trim();
@@ -288,6 +301,26 @@
       saveSettings({ ...settings(), relay, maxOrder, quickAmount: Math.min(maxOrder, Math.max(1, +$("#setQuick").value || 5)), enabled: $("#setOn").checked && !!(await getCred()),
         botPct: Math.min(100, Math.max(1, Math.round(+$("#setBotPct").value || 50))),
         botBetPct: Math.min(100, Math.max(0.1, Math.round((+$("#setBotBetPct").value || 1) * 10) / 10)) });
+    };
+    // sportsbook odds (The Odds API): saved with the rest; Test and Load use the key in the box or the saved one
+    const oMsg = (t, bad) => { const m = $("#setOddsMsg"); if (m) { m.innerHTML = t; m.style.color = bad ? "var(--miss)" : ""; } };
+    const persistOdds = () => {
+      const O = root.PropOdds; if (!O || !$("#setOddsKey")) return;
+      const k = $("#setOddsKey").value.trim();
+      O.saveSettings({ ...(k ? { key: k } : {}), regions: $("#setOddsRegions").value, maxCredits: Math.min(2000, Math.max(1, Math.round(+$("#setOddsMax").value || 15))), autoHours: Math.min(168, Math.max(0, Math.round(+$("#setOddsAuto").value || 0))) });
+      if (k) $("#setOddsKey").value = "";
+    };
+    if ($("#setOddsForget")) $("#setOddsForget").onclick = () => { root.PropOdds.forget(); root.PropOdds.onChange?.(); openSettings(); };
+    if ($("#setOddsTest")) $("#setOddsTest").onclick = async () => {
+      try { persistOdds(); const k = root.PropOdds.settings().key; if (!k) throw new Error("Paste your Odds API key first.");
+        oMsg("Testing…"); const r = await root.PropOdds.test(k); oMsg(`Key works.${r.remaining != null ? ` <b>${r.remaining}</b> credits left this month (${r.used} used).` : ""}`); }
+      catch (e) { oMsg(esc(e.message), true); }
+    };
+    if ($("#setOddsLoad")) $("#setOddsLoad").onclick = async () => {
+      try { persistOdds(); oMsg("Loading sportsbook odds…");
+        const r = await root.PropOdds.refresh(root.PropData?.get?.()); const n = root.PropOdds.onChange?.() ?? 0;
+        oMsg(`Loaded ${r.games} of ${r.of} upcoming game${r.of === 1 ? "" : "s"} (${r.spent} credits): book lines for ${Object.keys(r.quotes).length} player prop${Object.keys(r.quotes).length === 1 ? "" : "s"}.${r.remaining != null ? ` ${r.remaining} credits left this month.` : ""}${r.games < r.of ? " Raise “Credits per load” to cover more games." : ""}`); }
+      catch (e) { oMsg(esc(e.message), true); }
     };
     $("#setTest").onclick = async () => { try { await persist(); msg("Testing…"); const info = await balanceInfo();
       msg(`Connected. Kalshi balance: <b>${usd(info.total)}</b>${info.shards.length > 1 ? ` <span class="pl-sub">(${esc(describeBalances(info))})</span>` : ""}${info.subaccountKey ? `<br><span style="color:var(--amber)">This API key is tied to a subaccount, so it only sees that subaccount's money.</span>` : ""}${info.key && !info.key.scopes.some(x => /write/.test(x)) ? `<br><span style="color:var(--amber)">This API key is read-only, so it can't place orders.</span>` : ""}`); } catch (e) { msg(esc(e.message), true); } };

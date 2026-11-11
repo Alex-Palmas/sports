@@ -37,6 +37,7 @@
   }
   }
   prep(DATA);
+  try { window.PropOdds?.apply(DATA); } catch {}   // this browser's sportsbook odds (user's own Odds API key)
   const $ = s => document.querySelector(s);
   const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); Object.assign(e, attrs); if (html) e.innerHTML = html; return e; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -695,7 +696,7 @@
   /** Swap in a newer data.json: normalize, hand it to every view, redraw the open one. */
   function applyData(d) {
     try {
-      prep(d); DATA = d;
+      prep(d); try { window.PropOdds?.apply(d); } catch {} DATA = d;
       window.PropEdge?.setData?.(d);
       try { window.PropBets.updateClose(d); } catch {}
       if (state.view === "edge") { window.PropEdge.render($("#edgeView"), d, api, true); window.PropEdge.refreshLive?.(d).then(ok => { if (ok && state.view === "edge") window.PropEdge.render($("#edgeView"), d, api, true); }); }
@@ -714,6 +715,18 @@
     return false;
   }
   window.PropData = { pull: pullData, hard: hardData, get: () => DATA };
+  // sportsbook odds loaded with the user's own key: merge into the current data and redraw what's open
+  function redrawView() {
+    if (state.view === "edge") window.PropEdge.render($("#edgeView"), DATA, api, true);
+    else if (state.view === "bets") window.PropBets.render($("#betsView"), DATA, api);
+    else if (state.view === "games") window.PropGames.render($("#gamesView"), DATA, api);
+    else if (!state.view || state.view === "props") renderAll();
+  }
+  if (window.PropOdds) {
+    window.PropOdds.onChange = () => { const n = window.PropOdds.apply(DATA); redrawView(); return n; };
+    const autoOdds = () => { if (window.PropOdds.due()) window.PropOdds.refresh(DATA).then(() => window.PropOdds.onChange()).catch(() => {}); };
+    setTimeout(autoOdds, 3000); setInterval(autoOdds, 30 * 60e3);
+  }
   document.addEventListener("visibilitychange", () => { if (!document.hidden) pullData(); });
   window.PropBets.onChange = () => { if (state.view === "bets") window.PropBets.render($("#betsView"), DATA, api); };
   // "since your last visit" alerts for watched props
