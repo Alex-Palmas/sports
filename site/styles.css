@@ -728,3 +728,9 @@ html.auth-locked body>*:not(.login-screen){display:none!important}
 .gl-bet .kleg{display:flex;margin:2px 0 4px}
 .kpi .kleg{display:flex;margin-top:4px}
 .er-main .jersey{align-self:flex-start;width:max-content;margin:2px 0 0}
+/* one-tap Kalshi bet on the Edge Board */
+.qbet{margin-left:6px;border:0;border-radius:999px;padding:5px 12px;font:inherit;font-size:12px;font-weight:800;cursor:pointer;background:var(--accent);color:var(--on-accent,#fff);white-space:nowrap}
+.qbet.armed{background:var(--amber);color:#1a1200;animation:qpulse 1s ease-in-out infinite}
+.qbet.done{background:var(--hit);color:#fff;cursor:default}
+.qbet.fail{background:var(--miss);color:#fff;white-space:normal;text-align:left}
+@keyframes qpulse{50%{opacity:.75}}

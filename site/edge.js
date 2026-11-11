@@ -110,6 +110,7 @@
     const all = ranked.filter(x => opts.day === "all" || dayKey(x.p.gameDate) === opts.day)
       .map((x, i) => ({ ...x, day: dayKey(x.p.gameDate), i })).sort((a, b) => a.day.localeCompare(b.day) || a.i - b.i);
     const perDay = {}; for (const x of all) perDay[x.day] = (perDay[x.day] || 0) + 1;
+    const ks = window.PropKalshi?.settings?.() || {}, quick = ks.enabled ? Math.min(ks.quickAmount ?? 5, ks.maxOrder ?? 25) : 0, qi = [];
     const taken = {}, shown = all.filter(x => (taken[x.day] = (taken[x.day] || 0) + 1) <= opts.show);   // each day gets its own top N
     let lastDay = null, rank = 0;
     const leagues = Object.entries(DATA.sports).filter(([, s]) => s.players?.length);
@@ -136,7 +137,7 @@
           ${api.avatar(p, 44, "", sp)}
           <span class="er-main"><b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}${p.gameDate ? ` · ${esc(when(p.gameDate))}` : ""}</span>
             <span class="er-prop">${b ? `${b.side === "over" ? "Over" : "Under"} ${b.line}` : `Line ${r.line}`} ${esc(label)} <span class="pl-sub">· projection <b>${r.proj.mean}</b></span></span>
-            ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}</span>`; })()}` : ""}
+            ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}${b.tk && quick ? `<button type="button" class="qbet" data-qbet="${qi.push(x) - 1}" data-action="${L.action}" data-cents="${L.cents ?? ""}">Bet $${quick}</button>` : ""}</span>`; })()}` : ""}
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
           <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}${b.book === "Kalshi" && (b.href || b.tk) && window.PropKalshi ? window.PropKalshi.link(b, "Open in Kalshi", "kalshi-link er-link") : ""}`
             : `<span class="er-ev">${pct(r.probs.over > 0.5 ? r.probs.over : r.probs.under)}</span><span class="pl-sub">${r.probs.over > 0.5 ? "over" : "under"} · fair ${odds(r.probs.over > 0.5 ? r.fairOver : r.fairUnder)}</span><span class="pl-sub">no price yet</span>${confBadge(r.confidence)}`}</span>
@@ -157,9 +158,28 @@
     q("#edgeMarket").onchange = e => { opts.marketOnly = e.target.checked; save(); render(el, DATA, api); };
     q("#edgeQ").oninput = e => { opts.q = e.target.value; clearTimeout(q("#edgeQ")._t); q("#edgeQ")._t = setTimeout(() => { save(); render(el, DATA, api); setTimeout(() => { const n = el.querySelector("#edgeQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
     if (q("#edgeMore")) q("#edgeMore").onclick = () => { opts.show += 60; render(el, DATA, api); };
+    // one-tap Kalshi bet: first tap asks to confirm (what, price, amount), second tap places it
+    el.querySelectorAll("[data-qbet]").forEach(btn => btn.onclick = async e => {
+      e.stopPropagation();
+      const x = qi[+btn.dataset.qbet]; if (!x || btn.dataset.busy) return;
+      if (!btn.dataset.armed) {
+        btn.dataset.armed = "1"; btn.classList.add("armed");
+        btn.textContent = `Confirm ${btn.dataset.action}${btn.dataset.cents ? " @ " + btn.dataset.cents + "¢" : ""} · $${quick}`;
+        clearTimeout(btn._t); btn._t = setTimeout(() => { delete btn.dataset.armed; btn.classList.remove("armed"); btn.textContent = `Bet $${quick}`; }, 4000);
+        return;
+      }
+      clearTimeout(btn._t); btn.dataset.busy = "1"; btn.classList.remove("armed"); btn.textContent = "Placing…";
+      try {
+        const r = await window.PropKalshi.quickBet({ p: x.p, sport: x.lg, stat: x.stat, label: x.label, best: x.r.best });
+        btn.classList.add("done"); btn.textContent = `Bought ${r.filled} ${r.buy.toUpperCase()} @ ${Math.round(r.each * 100)}¢ · $${r.cost.toFixed(2)}`;
+      } catch (er) {
+        btn.classList.add("fail"); btn.textContent = er.message; btn.title = er.message;
+        setTimeout(() => { delete btn.dataset.busy; delete btn.dataset.armed; btn.classList.remove("fail"); btn.textContent = `Bet $${quick}`; btn.title = ""; }, 6000);
+      }
+    });
     el.querySelectorAll(".edge-row").forEach(b => {
       const open = () => api.openProp(b.dataset.sport, b.dataset.pid, b.dataset.k);
-      b.onclick = e => { if (!e.target.closest("[data-kalshi-link]")) open(); };
+      b.onclick = e => { if (!e.target.closest("[data-kalshi-link],[data-qbet]")) open(); };
       b.onkeydown = e => { if ((e.key === "Enter" || e.key === " ") && e.target === b) { e.preventDefault(); open(); } };
     });
   }

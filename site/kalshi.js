@@ -89,7 +89,7 @@
 
   // ---------------------------------------------------------------- settings & storage (browser)
   const LS = (typeof window !== "undefined" && window.PROPLAB_NS || "proplab:") + "kalshi";
-  const settings = () => { try { return { relay: "http://localhost:8787", maxOrder: 25, enabled: false, ...JSON.parse(localStorage.getItem(LS) || "{}") }; } catch { return { relay: "http://localhost:8787", maxOrder: 25, enabled: false }; } };
+  const settings = () => { try { return { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, ...JSON.parse(localStorage.getItem(LS) || "{}") }; } catch { return { relay: "http://localhost:8787", maxOrder: 25, enabled: false }; } };
   const saveSettings = s => { try { localStorage.setItem(LS, JSON.stringify(s)); } catch {} };
   const idb = () => new Promise((res, rej) => { const r = indexedDB.open("proplab-kalshi", 1); r.onupgradeneeded = () => r.result.createObjectStore("keys"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   async function idbDo(mode, fn) { const db = await idb(); return new Promise((res, rej) => { const tx = db.transaction("keys", mode), st = tx.objectStore("keys"), r = fn(st); tx.oncomplete = () => res(r?.result); tx.onerror = () => rej(tx.error); }); }
@@ -140,6 +140,7 @@
       <label>Relay URL <input id="setRelay" type="url" value="${esc(s.relay)}"/></label>
       <div class="tf-grid">
         <label>Max per order ($) <input id="setMax" type="number" min="1" max="1000" step="1" value="${esc(s.maxOrder)}"/></label>
+        <label>"Bet" button amount ($) <input id="setQuick" type="number" min="1" max="1000" step="1" value="${esc(s.quickAmount ?? 5)}"/></label>
         <label class="check"><input id="setOn" type="checkbox"${s.enabled ? " checked" : ""}/> Enable placing orders</label>
       </div>
       <div class="pl-sub" id="setMsg" role="status"></div>
@@ -160,7 +161,8 @@
       if (!/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(relay)) throw new Error("The relay URL must be https://… (or http://localhost for a relay on this computer).");
       const pem = $("#setPem").value.trim(), keyId = $("#setKeyId").value.trim();
       if (pem || keyId) { if (!pem || !keyId) throw new Error("Enter both the API key ID and the private key."); await saveCred(keyId, pem); $("#setPem").value = ""; $("#setKeyId").value = ""; }
-      saveSettings({ relay, maxOrder: Math.min(1000, Math.max(1, +$("#setMax").value || 25)), enabled: $("#setOn").checked && !!(await getCred()) });
+      const maxOrder = Math.min(1000, Math.max(1, +$("#setMax").value || 25));
+      saveSettings({ relay, maxOrder, quickAmount: Math.min(maxOrder, Math.max(1, +$("#setQuick").value || 5)), enabled: $("#setOn").checked && !!(await getCred()) });
     };
     $("#setTest").onclick = async () => { try { await persist(); msg("Testing…"); const b = await balance(); msg(`Connected. Kalshi balance: <b>${usd(b)}</b>`); } catch (e) { msg(esc(e.message), true); } };
     $("#setForm").onsubmit = async e => { e.preventDefault(); try { await persist(); dlg.close(); root.PropKalshi.onChange?.(); } catch (er) { msg(esc(er.message), true); } };
@@ -238,7 +240,39 @@
     render("loading"); dlg.showModal(); refresh();
   }
 
-  const api = { href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
+  /**
+   * One-tap bet from the Edge Board: the Settings amount on the recommended leg. Re-prices against the
+   * live market first and refuses if the ask moved up more than 2c or the edge is gone; IOC order.
+   * opts: { p, sport, stat, label, best } (best from PropModel.bestBet). Returns { filled, each, cost, buy }.
+   */
+  async function quickBet({ p, sport, stat, label, best }) {
+    const s = settings();
+    if (!s.enabled || !(await getCred())) throw new Error("Turn on order placement and add your Kalshi key in Settings.");
+    if (!best?.tk) throw new Error("No Kalshi market for this pick.");
+    const amount = Math.min(s.quickAmount ?? 5, s.maxOrder);
+    const m = await market(best.tk);
+    if (m?.status && !/active|open/i.test(m.status)) throw new Error("This market isn't open for trading.");
+    const buy = best.side === "over" ? "yes" : "no";
+    const ask = +(buy === "yes" ? m.yes_ask_dollars : m.no_ask_dollars), was = buy === "yes" ? best.ya : best.na;
+    if (!(ask > 0 && ask < 1)) throw new Error("No live price right now.");
+    if (was != null && ask > was + 0.02) throw new Error(`Price moved to ${Math.round(ask * 100)}¢ (was ${Math.round(was * 100)}¢). Not placed.`);
+    if (best.prob != null && best.prob <= ask + takerFee(1, ask)) throw new Error(`No edge at the live price (${Math.round(ask * 100)}¢). Not placed.`);
+    const z = size(amount, ask, s.maxOrder);
+    if (!z.contracts) throw new Error(`$${amount} doesn't buy a contract at ${Math.round(ask * 100)}¢.`);
+    const clientId = (root.crypto.randomUUID && root.crypto.randomUUID()) || String(Date.now());
+    const r = await placeOrder({ ticker: best.tk, buy, contracts: z.contracts, price: ask, clientId });
+    const filled = Math.floor(parseFloat(r.fill_count ?? r.order?.fill_count_fp ?? 0));
+    if (!filled) throw new Error("No fill: the price moved before the order arrived. Nothing was bought.");
+    const avgYes = r.average_fill_price != null ? +r.average_fill_price : null;
+    const each = avgYes != null ? (buy === "yes" ? avgYes : 1 - avgYes) : ask;
+    const fee = r.average_fee_paid != null ? +r.average_fee_paid * filled : takerFee(filled, each);
+    const cost = +(filled * each + fee).toFixed(2);
+    root.PropBets?.addBet?.({ p, sport, stat, label, side: best.side, line: best.line, price: root.PropModel.toAmerican(Math.min(0.99, cost / filled)),
+      book: "Kalshi", stake: cost, prob: best.prob, real: { orderId: r.order_id, ticker: best.tk, href: best.href || href(best), contracts: filled, buy } });
+    return { filled, each, cost, buy };
+  }
+
+  const api = { quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
     ready: async () => settings().enabled && !!(await getCred()) };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropKalshi = api;
 })(typeof window !== "undefined" ? window : globalThis);
