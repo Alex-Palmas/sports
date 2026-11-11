@@ -1,0 +1,54 @@
+name: Desktop app (macOS)
+
+# Builds PropLab for Mac (Apple Silicon + Intel) and publishes it to the "desktop-latest" release.
+# The app shows the live website, so it only needs rebuilding when the app shell or relay changes.
+on:
+  push:
+    branches: [main]
+    paths: ["desktop/**", "relay/**", ".github/workflows/desktop.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build PropLab.app
+        working-directory: desktop
+        run: |
+          npm install --no-audit --no-fund
+          node copy-relay.cjs
+          npx electron-builder --mac --dir --arm64 --x64 --publish never
+
+      - name: Sign (ad-hoc) and zip
+        working-directory: desktop/dist
+        run: |
+          for d in mac-arm64 mac; do
+            app="$d/PropLab.app"; [ -d "$app" ] || continue
+            codesign --force --deep --sign - "$app"
+            codesign --verify --deep "$app"
+            if [ "$d" = mac-arm64 ]; then arch=arm64; else arch=x64; fi
+            ditto -c -k --keepParent "$app" "PropLab-mac-$arch.zip"
+          done
+          ls -la *.zip
+
+      - name: Publish to the desktop-latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view desktop-latest >/dev/null 2>&1; then
+            gh release create desktop-latest --title "PropLab for Mac" --latest=false \
+              --notes "Install or update: curl -fsSL https://raw.githubusercontent.com/Alex-Palmas/sports/main/desktop/install.sh | bash"
+          fi
+          gh release upload desktop-latest desktop/dist/PropLab-mac-*.zip --clobber

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PropLab</title>
+<style>
+  :root{color-scheme:light dark}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;font:16px/1.5 -apple-system,system-ui,sans-serif;background:#0a101d;color:#e8edf6}
+  @media (prefers-color-scheme:light){body{background:#f3f5f9;color:#0e1726}}
+  .card{text-align:center;max-width:360px;padding:24px}
+  h1{font-size:22px;margin:0 0 8px}
+  p{opacity:.75;margin:0 0 18px}
+  button{background:#ff8a3d;color:#1a0b00;border:0;border-radius:12px;padding:12px 22px;font:inherit;font-weight:700;cursor:pointer}
+</style></head>
+<body><div class="card">
+  <h1>Can't reach PropLab</h1>
+  <p>Check your internet connection. The app shows the live website, so it needs to be online.</p>
+  <button id="retry">Try again</button>
+</div>
+<script>
+  const u = new URLSearchParams(location.search).get("u");
+  document.getElementById("retry").onclick = () => { if (u) location.href = u; };
+  window.addEventListener("online", () => { if (u) location.href = u; });
+</script></body></html>
