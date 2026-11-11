@@ -91,6 +91,18 @@ export const LEAGUES = {
     alias: { WSH: "WAS", JAX: "JAC" },
   },
 };
+/**
+ * Which live stat a player-prop series tracks. "Protected" variants (…PROT) track the same stat as the
+ * plain series; NBA points+rebounds+assists ladders track "pra" (summed from the box score).
+ */
+export function propStatOf(series, league) {
+  const props = LEAGUES[league]?.props || {};
+  if (props[series]) return props[series];
+  const plain = series.replace(/PROT$/, "");
+  if (props[plain]) return props[plain];
+  if (league === "nba" && /^KXNBAPRA(PROT)?$/.test(series)) return "pra";
+  return null;
+}
 /** Display group for a series, used to compare market types. */
 export function seriesGroup(series, league) {
   const s = series.replace(/^KXNBA|^KXNFL/, "");
@@ -444,9 +456,9 @@ export class Recorder {
         const suffix = m.event_ticker.split("-")[1]; if (!suffixes.has(suffix)) continue;
         any = true; seenTickers.add(m.ticker);
         if (!this.markets.has(m.ticker)) {
-          const props = LEAGUES[league].props;
+          const stat = propStatOf(series, league);
           this.markets.set(m.ticker, { league, series, group: seriesGroup(series, league), suffix, title: m.title, sub: m.yes_sub_title,
-            stat: props[series] || null, name: props[series] ? String(m.title).split(":")[0].trim() : (series === LEAGUES[league].game ? m.yes_sub_title : null),
+            stat, name: stat ? String(m.title).split(":")[0].trim() : (series === LEAGUES[league].game ? m.yes_sub_title : null),
             line: m.floor_strike ?? null, team: series === LEAGUES[league].game ? m.ticker.split("-").at(-1) : null });
         }
         const bid = m.yes_bid_dollars != null ? +m.yes_bid_dollars : null, ask = m.yes_ask_dollars != null ? +m.yes_ask_dollars : null;
@@ -487,7 +499,7 @@ export class Recorder {
       const playT = Date.parse(p.wallclock);
       const kp = keyPlay(g.league, p, g.teamById, g.lastScore);
       if (p.homeScore != null) g.lastScore = { home: +p.homeScore, away: +p.awayScore };
-      if (!g.primed) { if (g.league === "nba") for (const i of espnIncrements(p)) this.add(g, i); continue; } // backlog
+      if (!g.primed) { if (g.league === "nba") for (const i of espnIncrements(p)) { this.add(g, i); if (["pts", "reb", "ast"].includes(i.stat)) this.add(g, { ...i, stat: "pra" }); } continue; } // backlog
       if (!Number.isFinite(playT)) continue;
       newestPlayT = Math.max(newestPlayT ?? 0, playT);
       this.feedDelays.push({ league: g.league, d: (now - playT) / 1000 });
@@ -528,7 +540,7 @@ export class Recorder {
       const box = await getJSON(`${NBA_CDN}/boxscore/boxscore_${g.nbaId}.json`);
       for (const side of ["homeTeam", "awayTeam"]) for (const p of box?.game?.[side]?.players || []) {
         const st = p.statistics || {}; const id = String(p.personId); g.names[id] = p.name;
-        g.totals[id] = { pts: st.points || 0, reb: st.reboundsTotal || 0, ast: st.assists || 0, fg3: st.threePointersMade || 0 };
+        g.totals[id] = { pts: st.points || 0, reb: st.reboundsTotal || 0, ast: st.assists || 0, fg3: st.threePointersMade || 0 }; g.totals[id].pra = g.totals[id].pts + g.totals[id].reb + g.totals[id].ast;
       }
     }
     for (const a of pbp?.game?.actions || []) {
@@ -549,9 +561,14 @@ export class Recorder {
     g.primed = true;
   }
 
-  add(g, i) { const t = (g.totals[i.id] ||= { pts: 0, reb: 0, ast: 0, fg3: 0 }); const before = t[i.stat]; t[i.stat] += i.n; return [before, t[i.stat]]; }
+  add(g, i) { const t = (g.totals[i.id] ||= { pts: 0, reb: 0, ast: 0, fg3: 0, pra: 0 }); t.pra ??= 0; const before = t[i.stat]; t[i.stat] += i.n; return [before, t[i.stat]]; }
   applyIncrements(g, incs, playT, seenT) {
-    for (const i of incs) { const [before, after] = this.add(g, i); const name = g.names[i.id]; if (name) this.checkCrossings(g, name, i.stat, before, after, playT, seenT); }
+    for (const i of incs) {
+      const name = g.names[i.id];
+      const [before, after] = this.add(g, i); if (name) this.checkCrossings(g, name, i.stat, before, after, playT, seenT);
+      // points, rebounds and assists also move the PRA ladder
+      if (["pts", "reb", "ast"].includes(i.stat)) { const [b2, a2] = this.add(g, { ...i, stat: "pra" }); if (name) this.checkCrossings(g, name, "pra", b2, a2, playT, seenT); }
+    }
   }
   /** Every Kalshi strike a stat change pushed the player over settles YES. */
   checkCrossings(g, name, stat, before, after, playT, seenT) {
@@ -597,7 +614,7 @@ export class Recorder {
       const [who, what] = String(r.label).split(/:(.*)/s);
       const key = normName(who); const P = (players[key] ||= { player: who.trim(), espnId: ids[key] && /^\d+$/.test(ids[key]) ? ids[key] : null, stats: null, lines: [], traded: 0, events: 0 });
       const m = this.markets.get(r.ticker) || {};
-      const cur = m.stat ? totals[key]?.[m.stat] : null;
+      const tt = totals[key], cur = !m.stat || !tt ? null : m.stat === "pra" ? (tt.pts ?? 0) + (tt.reb ?? 0) + (tt.ast ?? 0) : tt[m.stat];
       P.lines.push({ ticker: r.ticker, label: what.trim(), stat: m.stat || null, line: r.line, pre: r.pre, end: r.end, change: r.change, traded: r.traded, closed: r.closed,
         settled: cur != null && r.line != null ? cur > r.line : null });
       P.traded += r.traded || 0;
