@@ -733,4 +733,16 @@ html.auth-locked body>*:not(.login-screen){display:none!important}
 .qbet.armed{background:var(--amber);color:#1a1200;animation:qpulse 1s ease-in-out infinite}
 .qbet.done{background:var(--hit);color:#fff;cursor:default}
 .qbet.fail{background:var(--miss);color:#fff;white-space:normal;text-align:left}
+.edge-live{display:flex;align-items:center;flex-wrap:wrap;gap:6px 10px;margin:6px 2px}
+.edge-live>span{display:flex;align-items:center;gap:6px}
+.live-dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.live-dot.on{background:var(--hit);box-shadow:0 0 0 0 var(--hit);animation:livepulse 2s ease-out infinite}
+@keyframes livepulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--hit) 60%,transparent)}100%{box-shadow:0 0 0 7px transparent}}
+.kmove{font-size:11px;font-weight:800;padding:1px 5px;border-radius:6px}
+.kmove.up{color:var(--miss);background:color-mix(in srgb,var(--miss) 14%,transparent)}
+.kmove.down{color:var(--hit);background:color-mix(in srgb,var(--hit) 14%,transparent)}
+.qmove{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;padding:8px 10px;border-radius:10px;border:1px solid var(--amber);background:color-mix(in srgb,var(--amber) 12%,transparent);font-size:12.5px;width:100%}
+.qmove button{border:0;border-radius:999px;padding:5px 12px;font:inherit;font-weight:800;cursor:pointer}
+.qmove .qm-yes{background:var(--accent);color:var(--on-accent,#fff)}
+.qmove .qm-no{background:transparent;color:inherit;border:1px solid currentColor}
 @keyframes qpulse{50%{opacity:.75}}

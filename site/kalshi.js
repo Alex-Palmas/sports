@@ -206,6 +206,17 @@
       return run();
     }
   }
+  /** Live quotes for many markets (public data through the relay, 100 tickers per request). */
+  async function markets(tickers) {
+    const out = [];
+    for (let i = 0; i < tickers.length; i += 100) {
+      const j = await call("GET", `/markets?limit=1000&tickers=${encodeURIComponent(tickers.slice(i, i + 100).join(","))}`, null, false);
+      out.push(...(j.markets || []));
+    }
+    return out;
+  }
+  /** Where live prices come from: the app's built-in relay, or a relay the user set up. */
+  const liveSource = () => desktopRelay() ? "app" : "relay";
   const market = async ticker => (await call("GET", `/markets/${encodeURIComponent(ticker)}`, null, false)).market;
   const placeOrder = o => call("POST", "/portfolio/events/orders", orderBody(o));
 
@@ -335,7 +346,12 @@
    * live market first and refuses if the ask moved up more than 2c or the edge is gone; IOC order.
    * opts: { p, sport, stat, label, best } (best from PropModel.bestBet). Returns { filled, each, cost, buy }.
    */
-  async function quickBet({ p, sport, stat, label, best }) {
+  /** Default "price moved" prompt (the Edge Board passes its own inline one). */
+  const confirmMoveDefault = ({ was, now, buy, prob, ev }) => Promise.resolve(root.confirm(
+    `Price moved: ${buy.toUpperCase()} was ${Math.round(was * 100)}¢, now ${Math.round(now * 100)}¢.\n` +
+    (prob != null ? `We make it ${Math.round(prob * 100)}% · EV ${ev >= 0 ? "+" : ""}${(ev * 100).toFixed(1)}¢ per contract${ev < 0 ? " (no edge at this price)" : ""}.\n` : "") +
+    `Accept ${Math.round(now * 100)}¢ and place the bet?`));
+  async function quickBet({ p, sport, stat, label, best, confirmMove = confirmMoveDefault }) {
     const s = settings();
     if (!s.enabled || !(await getCred())) throw new Error("Turn on order placement and add your Kalshi key in Settings.");
     if (!best?.tk) throw new Error("No Kalshi market for this pick.");
@@ -345,7 +361,6 @@
     const buy = best.side === "over" ? "yes" : "no";
     const ask = +(buy === "yes" ? m.yes_ask_dollars : m.no_ask_dollars), was = buy === "yes" ? best.ya : best.na;
     if (!(ask > 0 && ask < 1)) throw new Error("No live price right now.");
-    if (was != null && ask > was + 0.02) throw new Error(`Price moved to ${Math.round(ask * 100)}¢ (was ${Math.round(was * 100)}¢). Not placed.`);
     // re-price our estimate at the live quote (it is anchored on the market price, which may have moved)
     let prob = best.prob;
     const PM = root.PropModel;
@@ -354,13 +369,17 @@
       const o = PM.edgeOver({ b: "Kalshi", l: best.line, ya: +m.yes_ask_dollars, na: +m.no_ask_dollars }, { p, stat, proj, league: sport, modelOver: pr?.over });
       if (o != null) prob = best.side === "over" ? o : 1 - o;
     }
-    if (prob != null && prob <= ask + takerFee(1, ask)) throw new Error(`No edge at the live price (${Math.round(ask * 100)}¢): we make it ${Math.round(prob * 100)}%. Not placed.`);
+    const evLive = prob != null ? prob - ask - takerFee(1, ask) : null;
+    // the price you saw on the board vs the live ask: any move needs your OK at the new price
+    if (was != null && Math.round(ask * 100) !== Math.round(was * 100)) {
+      if (!(await confirmMove({ was, now: ask, buy, prob, ev: evLive }))) throw new Error(`Not placed: price is ${Math.round(ask * 100)}¢ now (was ${Math.round(was * 100)}¢).`);
+    } else if (evLive != null && evLive <= 0) throw new Error(`No edge at the live price (${Math.round(ask * 100)}¢): we make it ${Math.round(prob * 100)}%. Not placed.`);
     const z = size(amount, ask, s.maxOrder);
     if (!z.contracts) throw new Error(`$${amount} doesn't buy a contract at ${Math.round(ask * 100)}¢.`);
     const clientId = (root.crypto.randomUUID && root.crypto.randomUUID()) || String(Date.now());
     const r = await withFundsFix(best.tk, z.cost, () => placeOrder({ ticker: best.tk, buy, contracts: z.contracts, price: ask, clientId: (root.crypto.randomUUID && root.crypto.randomUUID()) || clientId + Math.random() }));
     const filled = Math.floor(parseFloat(r.fill_count ?? r.order?.fill_count_fp ?? 0));
-    if (!filled) throw new Error("No fill: the price moved before the order arrived. Nothing was bought.");
+    if (!filled) throw new Error(`No fill at ${Math.round(ask * 100)}¢: the price moved again before the order arrived. Nothing was bought.`);
     const avgYes = r.average_fill_price != null ? +r.average_fill_price : null;
     const each = avgYes != null ? (buy === "yes" ? avgYes : 1 - avgYes) : ask;
     const fee = r.average_fee_paid != null ? +r.average_fee_paid * filled : takerFee(filled, each);
@@ -370,7 +389,7 @@
     return { filled, each, cost, buy };
   }
 
-  const api = { balanceInfo, transfer, diagnoseInsufficient, withFundsFix, quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
+  const api = { markets, liveSource, balanceInfo, transfer, diagnoseInsufficient, withFundsFix, quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
     ready: async () => settings().enabled && !!(await getCred()) };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropKalshi = api;
 })(typeof window !== "undefined" ? window : globalThis);

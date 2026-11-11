@@ -45,6 +45,15 @@
     const seen = new Set(); return out.filter(([, t]) => !seen.has(t) && seen.add(t));
   }
 
+  /** "▲3¢" when the leg's ask changed in the last live refresh (within 10 minutes). */
+  function movedTag(p, stat, b) {
+    const q = (p.market?.[stat] || []).find(x => x.b === "Kalshi" && x.l === b.line && x.tk === b.tk);
+    if (!q?.movedAt || Date.now() - q.movedAt > 10 * 60e3) return "";
+    const yes = b.side === "over", now = yes ? q.ya : q.na, was = yes ? q.pya : q.pna;
+    if (now == null || was == null) return "";
+    const d = Math.round(now * 100) - Math.round(was * 100); if (!d) return "";
+    return ` <span class="kmove ${d > 0 ? "up" : "down"}" title="Was ${Math.round(was * 100)}¢">${d > 0 ? "▲" : "▼"}${Math.abs(d)}¢</span>`;
+  }
   function rows(DATA) {
     const M = window.PropModel; const out = []; gradeCounts = {}; statCounts = {};
     for (const [lg, sp] of Object.entries(DATA.sports)) {
@@ -103,7 +112,85 @@
     return `<div class="stat-strip edge-stats" role="toolbar" aria-label="Prop type">${[["all", "All"], ...seen].map(([k, l]) => `<button class="ss-chip${opts.stat === k ? " active" : ""}" data-estat="${k}" aria-pressed="${opts.stat === k}">${esc(l)}${k !== "all" && statCounts[k] ? ` <b>${statCounts[k]}</b>` : ""}</button>`).join("")}</div>`;
   }
 
-  function render(el, DATA, api) {
+  // ---------------------------------------------------------------- live Kalshi prices
+  // While the Edge Board is open, Kalshi quotes for games that haven't started are refreshed every
+  // minute (through the Mac app's built-in relay, or your own relay on the web) and the board re-ranks.
+  const LIVE_MS = 60e3;
+  const live = { at: null, err: null, busy: false, timer: null, n: 0 };
+  const feeOf = x => Math.ceil(0.07 * x * (1 - x) * 100 - 1e-9) / 100;
+  function kalshiQuotes(DATA) {
+    const now = Date.now(), out = [];
+    for (const sp of Object.values(DATA.sports)) for (const p of sp.players || []) {
+      if (p.gameDate && Date.parse(p.gameDate) < now - 5 * 60e3) continue;   // started: in-game prices aren't pre-game edges
+      for (const qs of Object.values(p.market || {})) for (const q of qs || []) if (q.b === "Kalshi" && q.tk) out.push(q);
+    }
+    return out;
+  }
+  async function refreshLive(DATA) {
+    const K = window.PropKalshi, M = window.PropModel;
+    if (live.busy || !K?.markets) return false;
+    const qs = kalshiQuotes(DATA); if (!qs.length) return false;
+    live.busy = true;
+    try {
+      const byTk = new Map(); for (const q of qs) (byTk.get(q.tk) || byTk.set(q.tk, []).get(q.tk)).push(q);
+      const ms = await K.markets([...byTk.keys()]);
+      let moved = 0;
+      for (const m of ms) for (const q of byTk.get(m.ticker) || []) {
+        const ya = parseFloat(m.yes_ask_dollars), na = parseFloat(m.no_ask_dollars);
+        const open = !m.status || /active|open/i.test(m.status);
+        if (!open || !(ya > 0.02 && ya < 0.98 && na > 0.02 && na < 0.98) || ya + na > 1.12) { q.o = q.u = null; continue; }   // not tradable now: drop from the board
+        if (q.ya != null && (Math.round(q.ya * 100) !== Math.round(ya * 100) || Math.round(q.na * 100) !== Math.round(na * 100))) { q.pya = q.ya; q.pna = q.na; q.movedAt = Date.now(); moved++; }
+        q.ya = +ya.toFixed(4); q.na = +na.toFixed(4);
+        q.o = M.toAmerican(Math.min(0.99, ya + feeOf(ya))); q.u = M.toAmerican(Math.min(0.99, na + feeOf(na)));
+        if (m.volume_fp != null) q.vol = Math.round(parseFloat(m.volume_fp));
+      }
+      live.at = Date.now(); live.err = null; live.n = ms.length; live.moved = moved;
+      return true;
+    } catch (e) { live.err = e.message; return false; }
+    finally { live.busy = false; }
+  }
+  /** Start (or keep) the refresh loop for this view; it stops itself when the Edge tab is hidden. */
+  function startLive(el, DATA, api) {
+    if (live.timer) return;
+    const tick = async () => {
+      if (el.hidden) { clearInterval(live.timer); live.timer = null; return; }
+      if (document.hidden) return;
+      const ok = await refreshLive(DATA);
+      // don't redraw under a bet that's being confirmed or placed
+      if (!el.hidden && !el.querySelector("[data-qbet][data-armed],[data-qbet][data-busy],.qmove")) render(el, DATA, api, true);
+      else if (ok) live.pending = true;
+    };
+    live.timer = setInterval(tick, LIVE_MS);
+    if (!live.at || Date.now() - live.at > LIVE_MS) tick();
+  }
+  const ago = t => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? `${s}s ago` : `${Math.round(s / 60)} min ago`; };
+  function liveStatus(DATA) {
+    const src = window.PropKalshi?.liveSource?.() === "app" ? "the PropLab app" : "your relay";
+    if (live.at) return `<span class="live-dot on"></span>Kalshi prices live · updated ${ago(live.at)}${live.moved ? ` · ${live.moved} moved` : ""} · every minute`;
+    if (live.err) return `<span class="live-dot"></span>Kalshi prices from the ${DATA.generated ? new Date(DATA.generated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "last"} data refresh. Live updates need ${src} (${esc(live.err.replace(/ \(see Settings.*$/, ""))}).`;
+    return `<span class="live-dot"></span>Getting live Kalshi prices…`;
+  }
+  /** Inline "price moved" question in the row; resolves true when you accept the new price. */
+  function askMove(btn, { was, now, buy, prob, ev }) {
+    return new Promise(resolve => {
+      const box = document.createElement("span"); box.className = "qmove"; box.setAttribute("role", "alertdialog");
+      const up = now > was;
+      box.innerHTML = `<span><b>Price moved</b> ${buy.toUpperCase()} ${Math.round(was * 100)}¢ → <b style="color:${up ? "var(--miss)" : "var(--hit)"}">${Math.round(now * 100)}¢</b>${prob != null ? ` · we make it ${pct(prob)} · EV <b style="color:${ev >= 0 ? "var(--hit)" : "var(--miss)"}">${ev >= 0 ? "+" : ""}${(ev * 100).toFixed(1)}¢</b>${ev < 0 ? " (no edge now)" : ""}` : ""}</span>
+        <button type="button" class="qm-yes">Accept ${Math.round(now * 100)}¢</button><button type="button" class="qm-no">Cancel</button>`;
+      btn.after(box);
+      const done = v => { clearTimeout(t); box.remove(); resolve(v); };
+      const t = setTimeout(() => done(false), 20000);
+      box.onclick = e => e.stopPropagation();
+      box.querySelector(".qm-yes").onclick = () => done(true);
+      box.querySelector(".qm-no").onclick = () => done(false);
+      box.querySelector(ev != null && ev < 0 ? ".qm-no" : ".qm-yes").focus();
+    });
+  }
+
+  function render(el, DATA, api, fromLive) {
+    startLive(el, DATA, api);
+    live.pending = false;
+    const scrollY = fromLive ? window.scrollY : null;
     if (!report && !reportReq) loadReport().then(() => { if (!el.hidden) render(el, DATA, api); });
     const ranked = rows(DATA), days = [...new Set(ranked.map(x => dayKey(x.p.gameDate)))].sort();
     if (opts.day !== "all" && !days.includes(opts.day)) opts.day = "all";
@@ -127,7 +214,8 @@
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
       ${accuracy(DATA)}
-      <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · EV uses our projection blended with the market's vig-free price at that line (market weight ${Math.round(((window.PropModel.cfg(opts.league === "all" ? "nba" : opts.league).marketWeight) || 0.5) * 100)}%), after Kalshi fees where they apply. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
+      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button></div>
+      <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
       <div class="edge-list">${shown.map(x => {
         const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25;
         let head = "";
@@ -138,7 +226,7 @@
           ${api.avatar(p, 44, "", sp)}
           <span class="er-main"><b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}${p.gameDate ? ` · ${esc(when(p.gameDate))}` : ""}</span>
             <span class="er-prop">${b ? `${b.side === "over" ? "Over" : "Under"} ${b.line}` : `Line ${r.line}`} ${esc(label)} <span class="pl-sub">· projection <b>${r.proj.mean}</b></span></span>
-            ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}${b.tk && quick ? `<button type="button" class="qbet" data-qbet="${qi.push(x) - 1}" data-action="${L.action}" data-cents="${L.cents ?? ""}">Bet $${quick}</button>` : ""}</span>`; })()}` : ""}
+            ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}${movedTag(p, stat, b)}${b.tk && quick ? `<button type="button" class="qbet" data-qbet="${qi.push(x) - 1}" data-action="${L.action}" data-cents="${L.cents ?? ""}">Bet $${quick}</button>` : ""}</span>`; })()}` : ""}
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
           <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}${b.book === "Kalshi" && (b.href || b.tk) && window.PropKalshi ? window.PropKalshi.link(b, "Open in Kalshi", "kalshi-link er-link") : ""}`
             : `<span class="er-ev">${pct(r.probs.over > 0.5 ? r.probs.over : r.probs.under)}</span><span class="pl-sub">${r.probs.over > 0.5 ? "over" : "under"} · fair ${odds(r.probs.over > 0.5 ? r.fairOver : r.fairUnder)}</span><span class="pl-sub">no price yet</span>${confBadge(r.confidence)}`}</span>
@@ -158,6 +246,10 @@
     });
     q("#edgeMarket").onchange = e => { opts.marketOnly = e.target.checked; save(); render(el, DATA, api); };
     q("#edgeQ").oninput = e => { opts.q = e.target.value; clearTimeout(q("#edgeQ")._t); q("#edgeQ")._t = setTimeout(() => { save(); render(el, DATA, api); setTimeout(() => { const n = el.querySelector("#edgeQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
+    q("#edgeRefresh").onclick = async e => {
+      const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Refreshing…";
+      await refreshLive(DATA); render(el, DATA, api, true);
+    };
     if (q("#edgeMore")) q("#edgeMore").onclick = () => { opts.show += 60; render(el, DATA, api); };
     // one-tap Kalshi bet: first tap asks to confirm (what, price, amount), second tap places it
     el.querySelectorAll("[data-qbet]").forEach(btn => btn.onclick = async e => {
@@ -171,7 +263,8 @@
       }
       clearTimeout(btn._t); btn.dataset.busy = "1"; btn.classList.remove("armed"); btn.textContent = "Placing…";
       try {
-        const r = await window.PropKalshi.quickBet({ p: x.p, sport: x.lg, stat: x.stat, label: x.label, best: x.r.best });
+        const r = await window.PropKalshi.quickBet({ p: x.p, sport: x.lg, stat: x.stat, label: x.label, best: x.r.best,
+          confirmMove: info => { btn.textContent = "Price moved…"; return askMove(btn, info).then(ok => { if (ok) btn.textContent = "Placing…"; return ok; }); } });
         btn.classList.add("done"); btn.textContent = `Bought ${r.filled} ${r.buy.toUpperCase()} @ ${Math.round(r.each * 100)}¢ · $${r.cost.toFixed(2)}`;
       } catch (er) {
         btn.classList.add("fail"); btn.textContent = er.message; btn.title = er.message;
@@ -183,6 +276,7 @@
       b.onclick = e => { if (!e.target.closest("[data-kalshi-link],[data-qbet]")) open(); };
       b.onkeydown = e => { if ((e.key === "Enter" || e.key === " ") && e.target === b) { e.preventDefault(); open(); } };
     });
+    if (scrollY != null) window.scrollTo(0, scrollY);
   }
-  window.PropEdge = { render, chips, confBadge };
+  window.PropEdge = { render, chips, confBadge, refreshLive, live };
 })();
