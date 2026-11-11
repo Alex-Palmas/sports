@@ -154,6 +154,58 @@
     return j;
   }
   const balance = async () => { const j = await call("GET", "/portfolio/balance"); return j.balance_dollars != null ? +j.balance_dollars : (j.balance ?? 0) / 100; };
+  /**
+   * Where the money is. Kalshi keeps balances per exchange shard (balance_breakdown) and routes each
+   * order to its market's shard; a key restricted to a subaccount sees only that subaccount (no breakdown).
+   */
+  async function balanceInfo() {
+    const j = await call("GET", "/portfolio/balance");
+    const total = j.balance_dollars != null ? +j.balance_dollars : (j.balance ?? 0) / 100;
+    const shards = (j.balance_breakdown || []).map(b => ({ index: +b.exchange_index, balance: b.balance_dollars != null ? +b.balance_dollars : (+b.balance || 0) / 100 })).sort((a, b) => a.index - b.index);
+    let key = null;
+    try { const cred = await getCred(); const k = (await call("GET", "/api_keys")).api_keys?.find(x => x.api_key_id === cred?.keyId); if (k) key = { scopes: k.scopes || [], subaccount: k.subaccount ?? null }; } catch {}
+    return { total, shards, subaccountKey: !j.balance_breakdown || key?.subaccount != null, key };
+  }
+  const usdS = x => `$${(+x).toFixed(2)}`;
+  const describeBalances = info => info.shards.length > 1 ? info.shards.map(x => `${usdS(x.balance)} on shard ${x.index}`).join(", ") : usdS(info.total);
+  /** Move money between event-contract shards (needs the key's write::transfer scope). */
+  async function transfer(fromShard, toShard, dollars) {
+    const id = (root.crypto.randomUUID && root.crypto.randomUUID()) || String(Date.now());
+    return call("POST", "/portfolio/intra_exchange_instance_transfer", { client_transfer_id: id, source: "event_contract", destination: "event_contract",
+      source_exchange_shard: fromShard, destination_exchange_shard: toShard, amount: Math.ceil(dollars * 10000) });   // centicents
+  }
+  /**
+   * After Kalshi says "insufficient balance": find out why. Returns { message, fix? } where fix is a
+   * transfer that would cover the order (another shard holds enough).
+   */
+  async function diagnoseInsufficient(ticker, needed) {
+    let info, m;
+    try { [info, m] = await Promise.all([balanceInfo(), market(ticker)]); } catch { return { message: "Kalshi says your balance is too low for this order." }; }
+    const shard = m?.exchange_index != null ? +m.exchange_index : null;
+    if (info.subaccountKey) return { message: `Kalshi says insufficient balance. This API key is tied to a subaccount and only sees ${usdS(info.total)}. Create an API key for your main account on kalshi.com (or move money into that subaccount).` };
+    if (shard == null || !info.shards.length) return { message: `Kalshi says insufficient balance (your key sees ${usdS(info.total)}; this order needs about ${usdS(needed)}).` };
+    const here = info.shards.find(x => x.index === shard)?.balance ?? 0;
+    if (here >= needed) return { message: `Kalshi says insufficient balance, but shard ${shard} shows ${usdS(here)}. Funds may still be settling; try again in a minute.` };
+    const src = info.shards.filter(x => x.index !== shard && x.balance >= needed - here).sort((a, b) => b.balance - a.balance)[0];
+    const amount = +(Math.max(needed - here, 1) + 0.5).toFixed(2);   // a little headroom for fees and price ticks
+    const base = `This market trades on Kalshi shard ${shard}, where you have ${usdS(here)}. Your money: ${describeBalances(info)}.`;
+    if (!src) return { message: `${base} Not enough on any shard for this order (needs about ${usdS(needed)}).` };
+    return { message: base, fix: { from: src.index, to: shard, amount: Math.min(amount, src.balance) } };
+  }
+  /** Run an order; on "insufficient balance", explain and (with the user's OK) move funds and retry once. */
+  async function withFundsFix(ticker, needed, run, confirmFn = q => root.confirm(q)) {
+    try { return await run(); }
+    catch (e) {
+      if (!/insufficient/i.test(e.message)) throw e;
+      const d = await diagnoseInsufficient(ticker, needed);
+      if (!d.fix) throw new Error(d.message);
+      if (!confirmFn(`${d.message}\n\nMove ${usdS(d.fix.amount)} from shard ${d.fix.from} to shard ${d.fix.to} and place the bet?`)) throw new Error(d.message);
+      try { await transfer(d.fix.from, d.fix.to, d.fix.amount); }
+      catch (te) { throw new Error(`${d.message} Moving funds failed (${te.message}). Your API key may need the "transfer" permission, or move it on kalshi.com.`); }
+      await new Promise(r => setTimeout(r, 1500));
+      return run();
+    }
+  }
   const market = async ticker => (await call("GET", `/markets/${encodeURIComponent(ticker)}`, null, false)).market;
   const placeOrder = o => call("POST", "/portfolio/events/orders", orderBody(o));
 
@@ -201,7 +253,8 @@
       const maxOrder = Math.min(1000, Math.max(1, +$("#setMax").value || 25));
       saveSettings({ relay, maxOrder, quickAmount: Math.min(maxOrder, Math.max(1, +$("#setQuick").value || 5)), enabled: $("#setOn").checked && !!(await getCred()) });
     };
-    $("#setTest").onclick = async () => { try { await persist(); msg("Testing…"); const b = await balance(); msg(`Connected. Kalshi balance: <b>${usd(b)}</b>`); } catch (e) { msg(esc(e.message), true); } };
+    $("#setTest").onclick = async () => { try { await persist(); msg("Testing…"); const info = await balanceInfo();
+      msg(`Connected. Kalshi balance: <b>${usd(info.total)}</b>${info.shards.length > 1 ? ` <span class="pl-sub">(${esc(describeBalances(info))})</span>` : ""}${info.subaccountKey ? `<br><span style="color:var(--amber)">This API key is tied to a subaccount, so it only sees that subaccount's money.</span>` : ""}${info.key && !info.key.scopes.some(x => /write/.test(x)) ? `<br><span style="color:var(--amber)">This API key is read-only, so it can't place orders.</span>` : ""}`); } catch (e) { msg(esc(e.message), true); } };
     $("#setForm").onsubmit = async e => { e.preventDefault(); try { await persist(); dlg.close(); root.PropKalshi.onChange?.(); } catch (er) { msg(esc(er.message), true); } };
     dlg.showModal();
   }
@@ -258,7 +311,7 @@
         $("#koGo").disabled = true; $("#koMsg").textContent = "Sending order…";
         try {
           const clientId = (root.crypto.randomUUID && root.crypto.randomUUID()) || String(Date.now());
-          const r = await placeOrder({ ticker: q.tk, buy, contracts: z.contracts, price: ask, clientId });
+          const r = await withFundsFix(q.tk, z.cost, () => placeOrder({ ticker: q.tk, buy, contracts: z.contracts, price: ask, clientId: (root.crypto.randomUUID && root.crypto.randomUUID()) || clientId + Math.random() }));
           const filled = Math.floor(parseFloat(r.fill_count ?? r.order?.fill_count_fp ?? 0));
           if (!filled) { $("#koMsg").innerHTML = `No fill: the price moved before the order arrived. Nothing was bought. <span class="pl-sub">(order ${esc(r.order_id || "")})</span>`; $("#koGo").disabled = false; return; }
           const avgYes = r.average_fill_price != null ? +r.average_fill_price : null;
@@ -297,7 +350,7 @@
     const z = size(amount, ask, s.maxOrder);
     if (!z.contracts) throw new Error(`$${amount} doesn't buy a contract at ${Math.round(ask * 100)}¢.`);
     const clientId = (root.crypto.randomUUID && root.crypto.randomUUID()) || String(Date.now());
-    const r = await placeOrder({ ticker: best.tk, buy, contracts: z.contracts, price: ask, clientId });
+    const r = await withFundsFix(best.tk, z.cost, () => placeOrder({ ticker: best.tk, buy, contracts: z.contracts, price: ask, clientId: (root.crypto.randomUUID && root.crypto.randomUUID()) || clientId + Math.random() }));
     const filled = Math.floor(parseFloat(r.fill_count ?? r.order?.fill_count_fp ?? 0));
     if (!filled) throw new Error("No fill: the price moved before the order arrived. Nothing was bought.");
     const avgYes = r.average_fill_price != null ? +r.average_fill_price : null;
@@ -309,7 +362,7 @@
     return { filled, each, cost, buy };
   }
 
-  const api = { quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
+  const api = { balanceInfo, transfer, diagnoseInsufficient, withFundsFix, quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
     ready: async () => settings().enabled && !!(await getCred()) };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropKalshi = api;
 })(typeof window !== "undefined" ? window : globalThis);
