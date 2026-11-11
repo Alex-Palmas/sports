@@ -47,3 +47,15 @@ Settings → Test connection lists the balance on each shard. When an order fail
 PropLab looks up the market's shard. If your money is on a different shard, it asks before moving just enough
 over (Kalshi's intra-exchange transfer) and then retries the order once. If the move is refused, the API key may
 need the transfer permission, or you can move the funds on kalshi.com.
+
+## Auto bet
+
+Tick **Auto bet** on the Edge Board to let PropLab place bets for you.
+
+- **What it bets on:** every Kalshi pick the board is showing with your current filters, as long as it has positive EV after fees and its game hasn't started. When a new pick appears in the minute-by-minute refresh, the bot bets on that too. It places one bet per pick.
+- **Budget:** Settings → Auto bet bot → "Bet per day (% of balance)". The bot takes that share of your Kalshi balance at its first run each day.
+- **Bet size:** the budget is split evenly over the picks on the board when the day's first picks appear. Each bet is capped by "Max per order". If an even share is less than one contract, the bot buys one contract per pick, best EV first, until the budget runs out.
+- **Orders:** orders are immediate-or-cancel at the live ask. If the price moved, the bot buys only if the edge still holds at the new price.
+- **Stopping:** the bot stops itself on any error other than a skipped pick, such as a rejected key or insufficient funds. The reason shows in the bot box on the Edge Board.
+- **When it runs:** only while PropLab is open (the Mac app or a browser tab). It keeps running if you switch tabs inside PropLab, and it resumes after a reload.
+- **Records:** every bot bet is listed in My Bets, marked "bot".

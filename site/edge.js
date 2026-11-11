@@ -153,9 +153,12 @@
   function startLive(el, DATA, api) {
     if (live.timer) return;
     const tick = async () => {
-      if (el.hidden) { clearInterval(live.timer); live.timer = null; return; }
-      if (document.hidden) return;
+      const botOn = !!botState().on;
+      if (el.hidden && !botOn) { clearInterval(live.timer); live.timer = null; return; }
+      if (document.hidden && !botOn) return;
       const ok = await refreshLive(DATA);
+      if (botOn && ok) await runBot(DATA);
+      if (el.hidden) return;
       // don't redraw under a bet that's being confirmed or placed
       if (!el.hidden && !el.querySelector("[data-qbet][data-armed],[data-qbet][data-busy],.qmove")) render(el, DATA, api, true);
       else if (ok) live.pending = true;
@@ -187,6 +190,78 @@
     });
   }
 
+  // ---------------------------------------------------------------- auto bet bot
+  // Bets on every Kalshi pick the board shows (current filters, positive EV after fees, game not
+  // started), once per pick. Daily budget = Settings "% of balance" × the balance at the first run of
+  // the day, split evenly: the per-bet amount is set when the day's first picks appear (budget ÷ picks
+  // on the board then, capped by "Max per order"); picks that show up later get the same amount while
+  // budget is left. Real orders: IOC at the live ask, and only if the edge holds at that price.
+  const BOT_LS = () => (window.PROPLAB_NS || "proplab:") + "bot";
+  const botState = () => { try { return JSON.parse(localStorage.getItem(BOT_LS()) || "{}"); } catch { return {}; } };
+  const saveBot = st => { try { localStorage.setItem(BOT_LS(), JSON.stringify(st)); } catch {} };
+  const todayKey = () => dayKey(new Date().toISOString());
+  const pickKey = x => `${x.lg}|${x.p.id}|${x.stat}|${x.r.best.line}|${x.r.best.side}|${dayKey(x.p.gameDate)}`;
+  const money = x => `$${(+x).toFixed(2)}`;
+  let botBusy = false;
+  function botLog(st, text) { st.log = [...(st.log || []), { at: Date.now(), text }].slice(-30); }
+  /** Picks the bot would bet now: the board's own list (filters applied) narrowed to bettable Kalshi edges. */
+  function botPicks(DATA, st) {
+    const now = Date.now();
+    return rows(DATA).filter(x => {
+      const b = x.r.best;
+      if (!b || b.book !== "Kalshi" || !b.tk || !(b.ev > 0) || b.ev < opts.minEv) return false;
+      if (opts.day !== "all" && dayKey(x.p.gameDate) !== opts.day) return false;
+      if (!x.p.gameDate || Date.parse(x.p.gameDate) < now + 2 * 60e3) return false;   // started or about to
+      const k = pickKey(x); return !st.placed?.[k] && (st.tries?.[k] || 0) < 3;
+    }).sort((a, b) => b.r.best.ev - a.r.best.ev);
+  }
+  async function runBot(DATA) {
+    const K = window.PropKalshi; let st = botState();
+    if (!st.on || botBusy || !K) return;
+    const ks = K.settings();
+    if (!ks.enabled || !(await K.getCred())) { st.on = false; st.stopped = "Order placement is off or no API key in Settings."; saveBot(st); return; }
+    botBusy = true;
+    try {
+      if (st.day !== todayKey()) {   // new day: fresh budget from the balance now
+        const info = await K.balanceInfo();
+        const keep = Object.fromEntries(Object.entries(st.placed || {}).filter(([k]) => k.split("|").pop() >= todayKey()));
+        st = { ...st, day: todayKey(), pct: ks.botPct ?? 10, balance: info.total, budget: +(info.total * (ks.botPct ?? 10) / 100).toFixed(2), unit: null, spent: 0, bets: 0, full: false, placed: keep, tries: {} };
+        botLog(st, `New day: budget ${money(st.budget)} (${st.pct}% of ${money(info.total)})`);
+        saveBot(st);
+      }
+      const picks = botPicks(DATA, st);
+      if (!picks.length) return;
+      if (st.unit == null) { st.unit = +Math.min(ks.maxOrder, st.budget / picks.length).toFixed(2); botLog(st, `${picks.length} picks on the board: ${money(st.unit)} each${st.unit < 1 ? " (less than a contract, so 1 contract per pick, best EV first, until the budget runs out)" : ""}`); saveBot(st); }
+      for (const x of picks) {
+        st = botState(); if (!st.on) break;   // switched off mid-run
+        // even split; when that's less than one contract, one contract per pick (best EV first) until the budget runs out
+        const left = +(st.budget - st.spent).toFixed(2), amount = Math.min(left, Math.max(st.unit, 1));
+        if (left < 0.2) { if (!st.full) { st.full = true; botLog(st, `Today's budget is used (${money(st.spent)} of ${money(st.budget)})`); saveBot(st); } break; }
+        const k = pickKey(x), b = x.r.best;
+        try {
+          const r = await K.quickBet({ p: x.p, sport: x.lg, stat: x.stat, label: x.label, best: b, amount, auto: true,
+            confirmMove: async ({ ev }) => ev != null && ev > 0 });   // take a moved price only if the edge holds there
+          st = botState(); st.spent = +(st.spent + r.cost).toFixed(2); st.bets = (st.bets || 0) + 1;
+          (st.placed ||= {})[k] = { at: Date.now(), name: x.p.name, label: x.label, side: b.side, line: b.line, contracts: r.filled, cents: Math.round(r.each * 100), buy: r.buy, cost: r.cost };
+          botLog(st, `Bought ${r.filled} ${r.buy.toUpperCase()} @ ${Math.round(r.each * 100)}¢ · ${x.p.name} ${b.side === "over" ? "over" : "under"} ${b.line} ${x.label} · ${money(r.cost)}`);
+          saveBot(st);
+        } catch (e) {
+          st = botState(); (st.tries ||= {})[k] = (st.tries[k] || 0) + 1;
+          const soft = /Not placed|No edge|No live price|isn't open|doesn't buy|No fill|No Kalshi market/i.test(e.message);
+          if (!soft) { st.on = false; st.stopped = e.message; botLog(st, `Stopped: ${e.message}`); saveBot(st); break; }
+          botLog(st, `Skipped ${x.p.name} ${x.label}: ${e.message}`); saveBot(st);
+        }
+      }
+    } catch (e) { st = botState(); st.on = false; st.stopped = e.message; botLog(st, `Stopped: ${e.message}`); saveBot(st); }
+    finally { botBusy = false; }
+  }
+  function botSummary() {
+    const st = botState(), ks = window.PropKalshi?.settings?.() || {};
+    if (!st.on) return st.stopped ? `Auto bet stopped: ${esc(st.stopped)}` : `Auto bet is off. When on: ${ks.botPct ?? 10}% of your balance per day, max ${money(ks.maxOrder ?? 25)} per bet.`;
+    if (st.day !== todayKey()) return `Auto bet on · starts today's budget (${ks.botPct ?? 10}% of balance) at the next check`;
+    return `Auto bet on · today ${money(st.spent || 0)} of ${money(st.budget)} (${st.pct}% of ${money(st.balance)}) · ${st.bets || 0} bet${st.bets === 1 ? "" : "s"}${st.unit != null ? ` · ${money(st.unit)} per bet` : ""}`;
+  }
+
   function render(el, DATA, api, fromLive) {
     startLive(el, DATA, api);
     live.pending = false;
@@ -214,7 +289,9 @@
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
       ${accuracy(DATA)}
-      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button></div>
+      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button>
+        ${window.PropKalshi ? `<label class="check bot-toggle"><input type="checkbox" id="edgeBot"${botState().on ? " checked" : ""}/> Auto bet</label>` : ""}</div>
+      ${window.PropKalshi && (botState().on || botState().stopped) ? `<div class="card bot-box${botState().on ? " on" : ""}"><div>${botSummary()}</div>${(botState().log || []).length ? `<details><summary class="pl-sub">Bot activity</summary><ul class="bot-log">${botState().log.slice().reverse().slice(0, 12).map(l => `<li><span class="pl-sub">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span> ${esc(l.text)}</li>`).join("")}</ul></details>` : ""}</div>` : ""}
       <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
       <div class="edge-list">${shown.map(x => {
         const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25;
@@ -226,7 +303,7 @@
           ${api.avatar(p, 44, "", sp)}
           <span class="er-main"><b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}${p.gameDate ? ` · ${esc(when(p.gameDate))}` : ""}</span>
             <span class="er-prop">${b ? `${b.side === "over" ? "Over" : "Under"} ${b.line}` : `Line ${r.line}`} ${esc(label)} <span class="pl-sub">· projection <b>${r.proj.mean}</b></span></span>
-            ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}${movedTag(p, stat, b)}${b.tk && quick ? `<button type="button" class="qbet" data-qbet="${qi.push(x) - 1}" data-action="${L.action}" data-cents="${L.cents ?? ""}">Bet $${quick}</button>` : ""}</span>`; })()}` : ""}
+            ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}${movedTag(p, stat, b)}${(() => { const bp = botState().placed?.[pickKey(x)]; return bp ? `<span class="tag won" title="Placed by Auto bet">bot · ${bp.contracts}× @${bp.cents}¢</span>` : ""; })()}${b.tk && quick ? `<button type="button" class="qbet" data-qbet="${qi.push(x) - 1}" data-action="${L.action}" data-cents="${L.cents ?? ""}">Bet $${quick}</button>` : ""}</span>`; })()}` : ""}
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
           <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}${b.book === "Kalshi" && (b.href || b.tk) && window.PropKalshi ? window.PropKalshi.link(b, "Open in Kalshi", "kalshi-link er-link") : ""}`
             : `<span class="er-ev">${pct(r.probs.over > 0.5 ? r.probs.over : r.probs.under)}</span><span class="pl-sub">${r.probs.over > 0.5 ? "over" : "under"} · fair ${odds(r.probs.over > 0.5 ? r.fairOver : r.fairUnder)}</span><span class="pl-sub">no price yet</span>${confBadge(r.confidence)}`}</span>
@@ -246,9 +323,20 @@
     });
     q("#edgeMarket").onchange = e => { opts.marketOnly = e.target.checked; save(); render(el, DATA, api); };
     q("#edgeQ").oninput = e => { opts.q = e.target.value; clearTimeout(q("#edgeQ")._t); q("#edgeQ")._t = setTimeout(() => { save(); render(el, DATA, api); setTimeout(() => { const n = el.querySelector("#edgeQ"); n.focus(); n.setSelectionRange(n.value.length, n.value.length); }); }, 250); };
+    if (q("#edgeBot")) q("#edgeBot").onchange = async e => {
+      const K = window.PropKalshi, st = botState();
+      if (!e.target.checked) { st.on = false; st.stopped = null; botLog(st, "Turned off"); saveBot(st); render(el, DATA, api, true); return; }
+      const ks = K.settings();
+      if (!ks.enabled || !(await K.getCred())) { e.target.checked = false; alert("Auto bet needs your Kalshi API key and \"Enable placing orders\" in Settings."); K.openSettings(); return; }
+      const n = botPicks(DATA, st).length;
+      if (!confirm(`Turn on Auto bet?\n\nIt places REAL Kalshi orders without asking, on every pick the Edge Board shows with positive EV after fees (${n} right now), and on new ones as they appear.\n\nBudget: ${ks.botPct ?? 10}% of your Kalshi balance per day, split evenly, at most ${money(ks.maxOrder)} per bet (change both in Settings). One bet per pick. Runs while PropLab is open.\n\nOur tests found Kalshi's prices hard to beat: expect small or no edge.`)) { e.target.checked = false; return; }
+      st.on = true; st.stopped = null; botLog(st, `Turned on (${ks.botPct ?? 10}% of balance per day, max ${money(ks.maxOrder)} per bet)`); saveBot(st);
+      startLive(el, DATA, api); render(el, DATA, api, true);
+      await runBot(DATA); render(el, DATA, api, true);
+    };
     q("#edgeRefresh").onclick = async e => {
       const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Refreshing…";
-      await refreshLive(DATA); render(el, DATA, api, true);
+      await refreshLive(DATA); if (botState().on) await runBot(DATA); render(el, DATA, api, true);
     };
     if (q("#edgeMore")) q("#edgeMore").onclick = () => { opts.show += 60; render(el, DATA, api); };
     // one-tap Kalshi bet: first tap asks to confirm (what, price, amount), second tap places it
@@ -278,5 +366,7 @@
     });
     if (scrollY != null) window.scrollTo(0, scrollY);
   }
-  window.PropEdge = { render, chips, confBadge, refreshLive, live };
+  /** On page load: if Auto bet was left on, keep it running even before the Edge tab is opened. */
+  function boot(el, DATA, api) { if (botState().on) startLive(el, DATA, api); }
+  window.PropEdge = { render, chips, confBadge, refreshLive, live, boot, botSummary, runBot, botState };
 })();

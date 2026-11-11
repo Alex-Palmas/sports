@@ -670,6 +670,7 @@
     avatar, teamLogo, sport: () => state.sport, focusGame: null,
     openProp(sp, pid, k) { setView("props"); state.sport = sp; state.stat = "all"; store.set("sport", sp); renderTabs(); select(pid, k); },
   };
+  try { window.PropEdge.boot($("#edgeView"), DATA, api); } catch {}
   window.PropBets.onChange = () => { if (state.view === "bets") window.PropBets.render($("#betsView"), DATA, api); };
   // "since your last visit" alerts for watched props
   try {

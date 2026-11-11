@@ -745,4 +745,9 @@ html.auth-locked body>*:not(.login-screen){display:none!important}
 .qmove button{border:0;border-radius:999px;padding:5px 12px;font:inherit;font-weight:800;cursor:pointer}
 .qmove .qm-yes{background:var(--accent);color:var(--on-accent,#fff)}
 .qmove .qm-no{background:transparent;color:inherit;border:1px solid currentColor}
+.bot-toggle{margin-left:auto;font-weight:700;color:var(--text)}
+.bot-box{padding:10px 14px;margin:6px 0;font-size:13px;border-left:3px solid var(--muted)}
+.bot-box.on{border-left-color:var(--hit)}
+.bot-box details{margin-top:6px}
+.bot-log{margin:6px 0 0;padding-left:18px;font-size:12.5px;line-height:1.5}
 @keyframes qpulse{50%{opacity:.75}}
