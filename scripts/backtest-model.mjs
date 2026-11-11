@@ -173,7 +173,7 @@ export function split(cases) {
   return { cut, train: cases.filter(c => c.date < cut), test: cases.filter(c => c.date >= cut) };
 }
 
-export { buildCases, score, tune, fitCalibration, GRID };
+export { buildCases, score, tune, fitCalibration, GRID, dvpIndex, posGroup };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const TUNE = process.argv.includes("--tune");

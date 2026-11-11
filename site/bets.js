@@ -152,6 +152,10 @@
       const done = b.filter(x => x.settled), open = b.filter(x => !x.settled);
       const pnl = done.reduce((a, x) => a + x.settled.pnl, 0), staked = done.reduce((a, x) => a + x.stake, 0);
       const W = done.filter(x => x.settled.result === "won").length, L = done.filter(x => x.settled.result === "lost").length, P = done.length - W - L;
+      // what the prices said: the sum of each settled bet's implied win chance (a fair 30-bet run of
+      // 35% long shots wins ~10, so "most lost" can still be on track)
+      const decided = done.filter(x => x.settled.result !== "push");
+      const expW = decided.length ? decided.reduce((a, x) => a + (M().impl(x.price) || 0), 0) : null;
       const clvs = b.map(x => M().clv(x)?.prob).filter(x => x != null);
       const avgClv = clvs.length ? clvs.reduce((a, c) => a + c, 0) / clvs.length : null;
       const beatClose = clvs.length ? clvs.filter(c => c > 0).length / clvs.length : null;
@@ -166,7 +170,7 @@
           <td><button class="chip sm" data-del="${esc(x.id)}" aria-label="Delete bet">✕</button></td></tr>`; };
       body.innerHTML = `
         <div class="kpis">
-          <div class="kpi"><div class="k">Record</div><div class="v">${W}-${L}${P ? "-" + P : ""}</div><div class="s">${open.length} open</div></div>
+          <div class="kpi"><div class="k">Record</div><div class="v">${W}-${L}${P ? "-" + P : ""}</div><div class="s">${open.length} open${expW != null ? ` · price said ${expW.toFixed(1)} wins` : ""}</div></div>
           <div class="kpi"><div class="k">Profit &amp; loss</div><div class="v" style="color:${pnl >= 0 ? "var(--hit)" : "var(--miss)"}">${usd(pnl)}</div><div class="s">${usd(staked)} staked · ROI ${pct(staked ? pnl / staked : null)}</div></div>
           <div class="kpi"><div class="k">Closing-line value</div><div class="v" style="color:${(avgClv ?? 0) >= 0 ? "var(--hit)" : "var(--miss)"}">${avgClv != null ? (avgClv > 0 ? "+" : "") + (avgClv * 100).toFixed(1) + " pts" : "—"}</div><div class="s">${beatClose != null ? `beat the close ${pct(beatClose)} of the time` : "your price vs. the final price"}</div></div>
           <div class="kpi"><div class="k">Bankroll</div><div class="v"><input id="bankroll" type="number" min="1" step="1" value="${esc(bankroll())}" aria-label="Bankroll in dollars"/></div><div class="s">used for quarter-Kelly stakes</div></div>
