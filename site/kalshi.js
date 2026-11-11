@@ -23,17 +23,46 @@
   const RSA_ALG_ID = [0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, 0x05, 0x00];
   function pkcs1ToPkcs8(pkcs1) { return der(0x30, [0x02, 0x01, 0x00, ...RSA_ALG_ID, ...der(0x04, pkcs1)]); }
 
-  /** Parse a PEM private key into a non-extractable signing key. Returns { key, alg }. */
+  // PKCS#8 wrapper for a bare 32-byte Ed25519 private key (seed)
+  const ED25519_PKCS8_PREFIX = [0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20];
+  const edSeedToPkcs8 = seed => Uint8Array.from([...ED25519_PKCS8_PREFIX, ...seed]);
+  async function importEd25519(body) {
+    try { return { key: await subtle().importKey("pkcs8", body, { name: "Ed25519" }, false, ["sign"]), alg: "Ed25519" }; }
+    catch (e) {
+      // browsers without Ed25519 in WebCrypto throw NotSupportedError
+      if (/NotSupported|Unrecognized|not supported/i.test(`${e.name} ${e.message}`)) throw new Error("This browser can't sign with Ed25519 keys. Update Chrome/Safari/Firefox, or use an RSA key from Kalshi.");
+      throw new Error("Couldn't read that Ed25519 key. Paste the whole key, including any BEGIN/END lines.");
+    }
+  }
+
+  /**
+   * Parse a Kalshi private key into a non-extractable signing key. Returns { key, alg }.
+   * Accepts RSA (PKCS#1 "RSA PRIVATE KEY" or PKCS#8 "PRIVATE KEY") and Ed25519 (PKCS#8 "PRIVATE KEY",
+   * or the bare key as base64/hex: 32-byte seed, or 64 bytes seed+public key).
+   */
   async function importPem(pem) {
-    const m = String(pem).match(/-----BEGIN ([A-Z ]+)-----([\s\S]+?)-----END \1-----/);
-    if (!m) throw new Error("That doesn't look like a PEM private key (it should start with -----BEGIN … PRIVATE KEY-----).");
+    const text = String(pem || "").trim();
+    const m = text.match(/-----BEGIN ([A-Z ]+)-----([\s\S]+?)-----END \1-----/);
+    if (!m) {
+      // no PEM armor: maybe a bare Ed25519 key
+      const compact = text.replace(/\s+/g, "");
+      let raw = null;
+      if (/^[0-9a-fA-F]{64}$|^[0-9a-fA-F]{128}$/.test(compact)) raw = Uint8Array.from(compact.match(/../g), h => parseInt(h, 16));
+      else if (/^[A-Za-z0-9+/=_-]{40,100}$/.test(compact)) { try { raw = unb64(compact.replace(/-/g, "+").replace(/_/g, "/")); } catch {} }
+      if (raw && (raw.length === 32 || raw.length === 64)) return importEd25519(edSeedToPkcs8(raw.slice(0, 32)));
+      throw new Error("That doesn't look like a private key. Paste the key file Kalshi gave you (it usually starts with -----BEGIN … PRIVATE KEY-----).");
+    }
     let body = unb64(m[2].replace(/[^A-Za-z0-9+/=]/g, ""));
+    if (m[1] === "OPENSSH PRIVATE KEY") throw new Error("That's an OpenSSH-format key. Use the private key file Kalshi gave you (PEM).");
     if (m[1] === "RSA PRIVATE KEY") body = pkcs1ToPkcs8(body);
     else if (m[1] !== "PRIVATE KEY") throw new Error(`Unsupported key type "${m[1]}". Use the private key file Kalshi gave you.`);
+    // PKCS#8 Ed25519 keys carry the OID 1.3.101.112 (06 03 2b 65 70) near the start
+    const isEd = body.length < 100 && body.slice(0, 16).some((b, i) => b === 0x2b && body[i + 1] === 0x65 && body[i + 2] === 0x70);
+    if (isEd) return importEd25519(body);
     try { return { key: await subtle().importKey("pkcs8", body, { name: "RSA-PSS", hash: "SHA-256" }, false, ["sign"]), alg: "RSA-PSS" }; }
     catch (e) {
-      try { return { key: await subtle().importKey("pkcs8", body, { name: "Ed25519" }, false, ["sign"]), alg: "Ed25519" }; }
-      catch { throw new Error("Couldn't read that private key. Paste the whole key file, including the BEGIN/END lines."); }
+      try { return await importEd25519(body); }
+      catch (e2) { if (/can't sign with Ed25519/.test(e2.message)) throw e2; throw new Error("Couldn't read that private key. Paste the whole key file, including the BEGIN/END lines."); }
     }
   }
 
@@ -133,9 +162,9 @@
       ${root.PropAuth?.unlocked?.() ? `<div class="set-acct"><span>Unlocked for this browser session</span><button type="button" class="chip sm" id="setSignOut">Lock</button></div>` : ""}
       <h3 class="set-h">Kalshi account</h3>
       <p class="pl-sub">Lets you place a bet on Kalshi from a prop you like. Your private key stays in this browser, locked so it can be used to sign orders but never read back out. Real money: orders are only sent after you confirm each one.</p>
-      ${cred ? `<div class="set-key"><span class="tag won">key saved</span> <span class="pl-sub">API key ID ${esc(cred.keyId.slice(0, 8))}… · ${esc(cred.alg)} · added ${new Date(cred.savedAt).toLocaleDateString()}</span> <button type="button" class="chip sm" id="setForget">Remove key</button></div>` : ""}
+      ${cred ? `<div class="set-key"><span class="tag won">key saved</span> <span class="pl-sub">API key ID ${esc(cred.keyId.slice(0, 8))}… · ${esc(cred.alg === "Ed25519" ? "Ed25519 key" : "RSA key")} · added ${new Date(cred.savedAt).toLocaleDateString()}</span> <button type="button" class="chip sm" id="setForget">Remove key</button></div>` : ""}
       <label>API key ID <input id="setKeyId" type="text" autocomplete="off" spellcheck="false" placeholder="${cred ? "leave blank to keep the saved key" : "e.g. a952bcbe-ec3b-4b5b-…"}"/></label>
-      <label>Private key <textarea id="setPem" rows="4" spellcheck="false" autocomplete="off" placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;…&#10;-----END RSA PRIVATE KEY-----"></textarea></label>
+      <label>Private key (RSA or Ed25519) <textarea id="setPem" rows="4" spellcheck="false" autocomplete="off" placeholder="-----BEGIN … PRIVATE KEY-----&#10;(RSA or Ed25519)&#10;-----END … PRIVATE KEY-----"></textarea></label>
       <label class="file-pick">or load the key file <input id="setFile" type="file" accept=".pem,.key,.txt"/></label>
       <label>Relay URL <input id="setRelay" type="url" value="${esc(s.relay)}"/></label>
       <div class="tf-grid">

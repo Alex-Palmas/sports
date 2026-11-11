@@ -4,7 +4,7 @@ PropLab can send a real order to your Kalshi account for a prop you like. It's o
 
 ## Setup (once)
 
-1. **API key.** On kalshi.com: Account & security → API keys → Create key. Save the key ID and the private key file (it's shown only once).
+1. **API key.** On kalshi.com: Account & security → API keys → Create key (RSA or Ed25519 both work). Save the key ID and the private key (it's shown only once). PropLab accepts the PEM file, or for Ed25519 the bare key as base64 or hex.
 2. **Relay.** Kalshi blocks requests coming from web pages, so the site sends its orders through a tiny relay you control. The relay never sees your key; it only forwards requests your browser has already signed.
    - **On a computer:** `node scripts/kalshi-relay.mjs` (Node 18+). Leave the relay URL as `http://localhost:8787`.
    - **From your phone:** create a free Cloudflare Worker (dash.cloudflare.com → Workers & Pages → Create → Hello World → Edit code), replace its code with `relay/kalshi-relay-worker.mjs`, deploy, and use the worker's `https://….workers.dev` URL.

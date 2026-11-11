@@ -22,7 +22,7 @@ test("browser signing matches Kalshi's RSA-PSS scheme (PKCS#1 and PKCS#8 keys), 
   assert.equal(c.alg, "Ed25519");
   const h = await K.authHeaders({ ...c, keyId: "k" }, "GET", "/trade-api/v2/portfolio/balance", 5);
   assert.ok(verify(null, Buffer.from("5GET/trade-api/v2/portfolio/balance"), ed.publicKey, Buffer.from(h["KALSHI-ACCESS-SIGNATURE"], "base64")));
-  await assert.rejects(K.importPem("not a key"), /PEM/);
+  await assert.rejects(K.importPem("not a key"), /private key/);
 });
 
 test("order body: over buys YES as a bid; under buys NO as a YES ask at 1 - price; IOC", () => {
@@ -78,4 +78,18 @@ test("links to the market's event page on kalshi.com", async () => {
   assert.equal(K.href({ tk: "KXNBAREB-26NOV10ORLSAC-X-7" }), "https://kalshi.com/markets/kxnbareb/nba-player-rebounds/kxnbareb-26nov10orlsac");
   assert.equal(K.href({ href: "https://kalshi.com/x" }), "https://kalshi.com/x");
   assert.match(K.link({ tk: "KXNBAPTS-A-B-1" }), /target="_blank" rel="noopener"/);
+});
+
+test("Ed25519 keys: PKCS#8 PEM and the bare 32-byte key (base64 or hex) both sign correctly", async () => {
+  const ed = generateKeyPairSync("ed25519");
+  const der = ed.privateKey.export({ type: "pkcs8", format: "der" }), seed = der.subarray(der.length - 32);
+  const msg = (ts, path) => Buffer.from(ts + "GET" + path);
+  for (const input of [ed.privateKey.export({ type: "pkcs8", format: "pem" }), seed.toString("base64"), seed.toString("hex"), "  " + seed.toString("base64") + "\n"]) {
+    const c = await K.importPem(input);
+    assert.equal(c.alg, "Ed25519"); assert.equal(c.key.extractable, false);
+    const h = await K.authHeaders({ ...c, keyId: "k" }, "GET", "/trade-api/v2/portfolio/balance?x=1", 7);
+    assert.ok(verify(null, msg("7", "/trade-api/v2/portfolio/balance"), ed.publicKey, Buffer.from(h["KALSHI-ACCESS-SIGNATURE"], "base64")));
+  }
+  await assert.rejects(K.importPem("hello"), /doesn't look like a private key/);
+  await assert.rejects(K.importPem("-----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY-----"), /OpenSSH/);
 });
