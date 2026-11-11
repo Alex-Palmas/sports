@@ -5,7 +5,7 @@ name: Desktop app (macOS)
 on:
   push:
     branches: [main]
-    paths: ["desktop/**", "relay/**", ".github/workflows/desktop.yml"]
+    paths: ["desktop/**", "relay/**", ".github/workflows/desktop.yml", "!desktop/install.sh", "!desktop/*.md"]
   workflow_dispatch:
 
 permissions:
@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: desktop
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:

@@ -16,4 +16,10 @@ mv "$tmp/app/PropLab.app" "$dest"
 # the app is built by GitHub Actions and ad-hoc signed (not notarized): clear the download quarantine flag
 xattr -cr "$dest" 2>/dev/null || true
 echo "Installed $dest"
+# a PropLab shortcut on the Desktop (a Finder alias; falls back to a link)
+if [ ! -e "$HOME/Desktop/PropLab" ] && [ ! -e "$HOME/Desktop/PropLab.app" ]; then
+  osascript -e 'tell application "Finder" to make alias file to POSIX file "/Applications/PropLab.app" at (path to desktop folder)' >/dev/null 2>&1 \
+    || ln -s "$dest" "$HOME/Desktop/PropLab.app"
+  echo "Added a PropLab shortcut to your Desktop"
+fi
 open "$dest"
