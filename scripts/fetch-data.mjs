@@ -418,7 +418,12 @@ async function buildSport(key, cfg, quotes, gameMarkets) {
     const out = withLogs.filter(a => /out|doubtful|suspension/i.test(a.injury || "") && a.recentGames >= 3 && (key === "nfl" || key === "mlb" || (a.recentMin || 0) >= 15))
       .sort((x, y) => (y.recentMin || 0) - (x.recentMin || 0)).slice(0, 3);
     const questionable = withLogs.filter(a => /questionable|day-to-day/i.test(a.injury || "") && a.recentGames >= 3).map(a => ({ name: a.name, status: a.injury }));
-    for (const p of cfg.select(withLogs.filter(a => !/out|doubtful|suspension/i.test(a.injury || "")))) {
+    // the usual rotation pick, plus anyone a market prices tonight (Kalshi or a sportsbook): a bench
+    // player with a line belongs on the board even if he's outside the minutes cut
+    const healthy = withLogs.filter(a => !/out|doubtful|suspension/i.test(a.injury || ""));
+    const picked = cfg.select(healthy);
+    const priced = healthy.filter(a => !picked.includes(a) && a.logs?.length && cfg.stats.some(([s]) => (quotes[`${key}|${normName(a.name)}|${s}`] || []).length));
+    for (const p of [...picked, ...priced]) {
       // add last season for a deeper sample
       let logs = p.logs;
       if (logs.length < 30) {
