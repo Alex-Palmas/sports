@@ -194,7 +194,7 @@
       dlg.innerHTML = `<form method="dialog" class="track-form" id="koForm">
         <h2>Bet on Kalshi <span class="pl-sub">${esc(opts.p.name)} · ${esc(opts.label)}</span></h2>
         ${!s.enabled ? `<p class="pl-sub" style="color:var(--miss)">Order placement is off. Turn it on in Settings (and add your API key).</p>` : ""}
-        <label>Pick <select id="koPick">${choices.map(([sd, qq], i) => `<option value="${i}"${i === sel ? " selected" : ""}>${sd === "over" ? "Over" : "Under"} ${qq.l} (${sd === "over" ? "YES" : "NO"} on ${esc(qq.tk)})</option>`).join("")}</select></label>
+        <label>Pick <select id="koPick">${choices.map(([sd, qq], i) => `<option value="${i}"${i === sel ? " selected" : ""}>${sd === "over" ? "Over" : "Under"} ${qq.l} → buy ${sd === "over" ? "YES" : "NO"} on “${esc(qq.title || `${Math.floor(qq.l) + 1}+ ${opts.label}`)}”</option>`).join("")}</select></label>
         <div class="ko-open">${q ? link(q, "Open this market in Kalshi", "kalshi-link") : ""}</div>
         <div class="ko-live">${live ? `Live ask <b>${ask != null ? Math.round(ask * 100) + "¢" : "—"}</b>${moved ? ` <span style="color:${moved > 0 ? "var(--miss)" : "var(--hit)"}">(${moved > 0 ? "+" : ""}${Math.round(moved * 100)}¢ since the data refresh)</span>` : ""} · ${esc(live.status || "")}` : state === "loading" ? "Getting the live price…" : `Ask ${ask != null ? Math.round(ask * 100) + "¢" : "—"} at the last data refresh`}</div>
         <div class="tf-grid">

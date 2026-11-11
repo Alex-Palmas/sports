@@ -117,3 +117,14 @@ test("game model uses this season's games; last season only when this one has ba
   const unflagged = [...cur, ...prev].map(({ season, ...x }) => x);                        // older data: split at the off-season gap
   assert.equal(M.seasonForm(unflagged).length, 6);
 });
+
+test("Kalshi leg: over = buy YES on the N+ contract, under = buy NO", () => {
+  assert.deepEqual(M.kalshiLeg("over", 19.5, "Pts+Reb+Ast", { ya: 0.23, na: 0.79 }), { action: "YES", contract: "20+ Pts+Reb+Ast", cents: 23 });
+  assert.deepEqual(M.kalshiLeg("under", 19.5, "Pts+Reb+Ast", { ya: 0.23, na: 0.79 }), { action: "NO", contract: "20+ Pts+Reb+Ast", cents: 79 });
+  assert.equal(M.kalshiLeg("over", 0.5, "Steals", { price: 100 }).contract, "1+ Steals");
+  assert.equal(M.kalshiLeg("over", 0.5, "Steals", { price: 100 }).cents, 50);
+  // game lines carry the contract too
+  const g = { home: "NY", away: "MIL", form: {}, kalshi: { spread: [{ team: "NY", l: 15.5, o: -105, u: -115, ya: 0.5, na: 0.52, title: "New York wins by over 15.5 points" }], total: [], ml: {} } };
+  const legs = M.gameBets(g, "nba").bets.map(b => [b.label, b.leg.action, b.leg.contract]);
+  assert.deepEqual(legs.sort(), [["MIL +15.5", "NO", "New York wins by over 15.5 points"], ["NY -15.5", "YES", "New York wins by over 15.5 points"]]);
+});

@@ -220,7 +220,8 @@ export function matchKalshiGames(games, markets, slugs = {}) {
     if (!(ya > 0.02 && ya < 0.98 && na > 0.02 && na < 0.98) || ya + na > 1.12) continue;
     const series = ev.split("-")[0].toLowerCase();
     const q = { ya: +ya.toFixed(4), na: +na.toFixed(4), o: toAmerican(Math.min(0.99, ya + fee(ya))), u: toAmerican(Math.min(0.99, na + fee(na))), vol: Math.round(parseFloat(m.volume_fp || 0)), tk: m.ticker,
-      href: slugs[series] ? `https://kalshi.com/markets/${series}/${slugs[series]}/${ev.toLowerCase()}` : `https://kalshi.com/markets/${series}` };
+      href: slugs[series] ? `https://kalshi.com/markets/${series}/${slugs[series]}/${ev.toLowerCase()}` : `https://kalshi.com/markets/${series}`,
+      title: String(m.yes_sub_title || m.title || "").replace(/\?$/, "").trim() || undefined };
     const suffix = String(m.ticker).slice(ev.length + 1), code = suffix.replace(/\d+$/, "");
     const team = [g.home.abbreviation, g.away.abbreviation].find(t => kCodes(t).includes(code));
     if (kind === "ml") { if (team) g.kalshi.ml[team] = q; }

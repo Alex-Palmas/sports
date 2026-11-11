@@ -302,7 +302,7 @@
         <div class="kpi"><div class="k">Median</div><div class="v">${fmt(median(logs, k))}</div><div class="s">${state.range} sample</div></div>
         <div class="kpi"><div class="k">Streak</div><div class="v">${streak(p.logs, k, line, side)}</div><div class="s">straight ${side}s</div></div>
         ${(() => { const bb = window.PropModel.bestBet(p, k, state.sport), b = bb?.best; return b
-          ? `<div class="kpi"><div class="k">Best bet</div><div class="v" style="color:${evColor(b.ev)}">EV ${evTxt(b.ev)}</div><div class="s">${b.side === "over" ? "O" : "U"} ${b.line} ${odds(b.price)} · ${esc(b.book)}</div>${window.PropEdge.confBadge(bb.confidence)}</div>`
+          ? `<div class="kpi"><div class="k">Best bet</div><div class="v" style="color:${evColor(b.ev)}">EV ${evTxt(b.ev)}</div><div class="s">${b.side === "over" ? "O" : "U"} ${b.line} ${odds(b.price)} · ${esc(b.book)}</div>${b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, statLabel(k), b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}</span>`; })()}` : ""}${window.PropEdge.confBadge(bb.confidence)}</div>`
           : `<div class="kpi"><div class="k">Projection</div><div class="v">${bb ? bb.proj.mean : "—"}</div><div class="s">${price != null ? `${side} ${odds(price)} · ${pct(implied(price))} implied` : "no market price yet"}</div></div>`; })()}
         <div class="kpi"><div class="k">Opp vs ${esc(statLabel(k))}</div><div class="v" style="color:${rankColor}">${rank}<span style="font-size:13px">/${n}</span></div><div class="s">${rankTxt} matchup</div></div>
       </div>
