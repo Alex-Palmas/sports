@@ -571,6 +571,8 @@ async function main() {
   for (const [k, t] of Object.entries(out.modelTrack || {})) console.log(`track ${k}: ${t.n} graded, model LL ${t.model?.logLoss} vs market ${t.market?.logLoss}`);
   await mkdir(dirname(OUT), { recursive: true });
   await writeFile(OUT, JSON.stringify(out));
+  // tiny file the open app polls to know a new data.json is out (so it doesn't re-download 4 MB to check)
+  await writeFile(`${dirname(OUT)}/data-version.json`, JSON.stringify({ generated: out.generated }));
   console.log(`wrote ${OUT}`);
 }
 

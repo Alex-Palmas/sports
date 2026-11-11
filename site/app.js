@@ -4,6 +4,8 @@
     const r = await fetch("data.json", { cache: "no-cache" });
     if (r.ok) { const d = await r.json(); if (d && d.sports) { DATA = d; LIVE = true; } }
   } catch {}
+  // Normalizes a freshly loaded data.json (at start and on each background refresh).
+  function prep(DATA) {
   // NBA combo stats (P+R, P+A, R+A): derived from the box score for data generated before they existed
   {
     const nba = DATA.sports?.nba;
@@ -33,6 +35,8 @@
       if (seen.has(p.id)) p.id = `${p.id}@${(p.gameDate || "").slice(0, 10)}`; else seen.add(p.id);
     }
   }
+  }
+  prep(DATA);
   const $ = s => document.querySelector(s);
   const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); Object.assign(e, attrs); if (html) e.innerHTML = html; return e; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -671,6 +675,32 @@
     openProp(sp, pid, k) { setView("props"); state.sport = sp; state.stat = "all"; store.set("sport", sp); renderTabs(); select(pid, k); },
   };
   try { window.PropEdge.boot($("#edgeView"), DATA, api); } catch {}
+  // New data every 15 minutes (the Pages workflow rebuilds data.json): poll the tiny data-version.json
+  // every 2 minutes and swap the new data in without a page reload. Waits while a bet is in progress.
+  let dataChecked = Date.now();
+  async function pullData(force) {
+    try {
+      if (!LIVE) return;
+      let gen = null;
+      const v = await fetch(`data-version.json?t=${Date.now()}`, { cache: "no-store" }).catch(() => null);
+      if (v?.ok) { gen = (await v.json())?.generated; if (!gen || gen === DATA.generated) return; }
+      else if (!force && Date.now() - dataChecked < 15 * 60e3) return;   // no version file: full check every 15 min
+      dataChecked = Date.now();
+      if (document.querySelector("[data-qbet][data-armed],[data-qbet][data-busy],.qmove")) { setTimeout(() => pullData(true), 60e3); return; }
+      const r = await fetch(`data.json?v=${encodeURIComponent(gen || Date.now())}`, { cache: "no-store" }); if (!r.ok) return;
+      const d = await r.json(); if (!d?.sports || d.generated === DATA.generated) return;
+      prep(d); DATA = d;
+      window.PropEdge?.setData?.(d);
+      try { window.PropBets.updateClose(d); } catch {}
+      if (state.view === "edge") { await window.PropEdge.refreshLive?.(d); window.PropEdge.render($("#edgeView"), d, api, true); }
+      else if (state.view === "bets") window.PropBets.render($("#betsView"), d, api);
+      else if (state.view === "games") window.PropGames.render($("#gamesView"), d, api);
+      const foot = document.querySelector("#dataStamp"); if (foot) foot.textContent = new Date(d.generated).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    } catch {}
+  }
+  setInterval(pullData, 2 * 60e3);
+  window.PropData = { pull: pullData, get: () => DATA };
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) pullData(); });
   window.PropBets.onChange = () => { if (state.view === "bets") window.PropBets.render($("#betsView"), DATA, api); };
   // "since your last visit" alerts for watched props
   try {
@@ -703,7 +733,7 @@
     const upd = new Date(DATA.generated).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     const src = DATA.sources || {};
     const t = x => x ? new Date(x).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
-    foot.innerHTML = `Game logs: ESPN (${esc(upd)})${src.sportsbooks ? ` · Sportsbooks via The Odds API (${esc(t(src.sportsbooks))})` : ""}${src.kalshi ? ` · Kalshi (${esc(t(src.kalshi))})` : ""}. <span class="tag">proj</span> = no market yet, projected from recent games. EV uses each player's last-20 hit rate — a rough guide, not betting advice.`;
+    foot.innerHTML = `Game logs: ESPN (<span id="dataStamp">${esc(upd)}</span>)${src.sportsbooks ? ` · Sportsbooks via The Odds API (${esc(t(src.sportsbooks))})` : ""}${src.kalshi ? ` · Kalshi (${esc(t(src.kalshi))})` : ""}. <span class="tag">proj</span> = no market yet, projected from recent games. EV uses each player's last-20 hit rate — a rough guide, not betting advice.`;
   }
 
   renderAll();
