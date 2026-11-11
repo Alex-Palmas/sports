@@ -122,7 +122,7 @@
   // the PropLab Mac app runs its own relay and tells the page where it is
   const desktopRelay = () => (typeof window !== "undefined" && window.PROPLAB_DESKTOP?.relay) || null;
   const settings = () => {
-    let s; try { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, botPct: 10, ...JSON.parse(localStorage.getItem(LS) || "{}") }; }
+    let s; try { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, botPct: 50, botBetPct: 1, ...JSON.parse(localStorage.getItem(LS) || "{}") }; }
     catch { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5 }; }
     if (desktopRelay()) s.relay = desktopRelay();
     return s;
@@ -245,9 +245,10 @@
         <label class="check"><input id="setOn" type="checkbox"${s.enabled ? " checked" : ""}/> Enable placing orders</label>
       </div>
       <h3 class="set-h">Auto bet bot</h3>
-      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. Each day it may spend this share of your Kalshi balance, split evenly across the picks; each bet is also capped by "Max per order". One bet per pick. It only runs while PropLab is open.</p>
+      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. Both percentages use your Kalshi balance at the start of the day; each bet is also capped by "Max per order" and is at least one contract. One bet per pick. It only runs while PropLab is open.</p>
       <div class="tf-grid">
-        <label>Bet per day (% of balance) <input id="setBotPct" type="number" min="1" max="100" step="1" value="${esc(s.botPct ?? 10)}"/></label>
+        <label>Each bet (% of balance) <input id="setBotBetPct" type="number" min="0.1" max="100" step="0.1" value="${esc(s.botBetPct ?? 1)}"/></label>
+        <label>Total per day (% of balance) <input id="setBotPct" type="number" min="1" max="100" step="1" value="${esc(s.botPct ?? 50)}"/></label>
         <div class="pl-sub" id="setBotNow">${root.PropEdge?.botSummary?.() || ""}</div>
       </div>
       <div class="pl-sub" id="setMsg" role="status"></div>
@@ -270,7 +271,8 @@
       if (pem || keyId) { if (!pem || !keyId) throw new Error("Enter both the API key ID and the private key."); await saveCred(keyId, pem); $("#setPem").value = ""; $("#setKeyId").value = ""; }
       const maxOrder = Math.min(1000, Math.max(1, +$("#setMax").value || 25));
       saveSettings({ ...settings(), relay, maxOrder, quickAmount: Math.min(maxOrder, Math.max(1, +$("#setQuick").value || 5)), enabled: $("#setOn").checked && !!(await getCred()),
-        botPct: Math.min(100, Math.max(1, Math.round(+$("#setBotPct").value || 10))) });
+        botPct: Math.min(100, Math.max(1, Math.round(+$("#setBotPct").value || 50))),
+        botBetPct: Math.min(100, Math.max(0.1, Math.round((+$("#setBotBetPct").value || 1) * 10) / 10)) });
     };
     $("#setTest").onclick = async () => { try { await persist(); msg("Testing…"); const info = await balanceInfo();
       msg(`Connected. Kalshi balance: <b>${usd(info.total)}</b>${info.shards.length > 1 ? ` <span class="pl-sub">(${esc(describeBalances(info))})</span>` : ""}${info.subaccountKey ? `<br><span style="color:var(--amber)">This API key is tied to a subaccount, so it only sees that subaccount's money.</span>` : ""}${info.key && !info.key.scopes.some(x => /write/.test(x)) ? `<br><span style="color:var(--amber)">This API key is read-only, so it can't place orders.</span>` : ""}`); } catch (e) { msg(esc(e.message), true); } };
