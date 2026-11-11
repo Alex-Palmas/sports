@@ -121,7 +121,7 @@
   // the PropLab Mac app runs its own relay and tells the page where it is
   const desktopRelay = () => (typeof window !== "undefined" && window.PROPLAB_DESKTOP?.relay) || null;
   const settings = () => {
-    let s; try { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, ...JSON.parse(localStorage.getItem(LS) || "{}") }; }
+    let s; try { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, botPct: 10, ...JSON.parse(localStorage.getItem(LS) || "{}") }; }
     catch { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5 }; }
     if (desktopRelay()) s.relay = desktopRelay();
     return s;
@@ -243,6 +243,12 @@
         <label>"Bet" button amount ($) <input id="setQuick" type="number" min="1" max="1000" step="1" value="${esc(s.quickAmount ?? 5)}"/></label>
         <label class="check"><input id="setOn" type="checkbox"${s.enabled ? " checked" : ""}/> Enable placing orders</label>
       </div>
+      <h3 class="set-h">Auto bet bot</h3>
+      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. Each day it may spend this share of your Kalshi balance, split evenly across the picks; each bet is also capped by "Max per order". One bet per pick. It only runs while PropLab is open.</p>
+      <div class="tf-grid">
+        <label>Bet per day (% of balance) <input id="setBotPct" type="number" min="1" max="100" step="1" value="${esc(s.botPct ?? 10)}"/></label>
+        <div class="pl-sub" id="setBotNow">${root.PropEdge?.botSummary?.() || ""}</div>
+      </div>
       <div class="pl-sub" id="setMsg" role="status"></div>
       <details class="set-help"><summary>How to set up</summary><ol class="pl-sub">
         <li>On kalshi.com go to Account &amp; security → API keys → Create key. Save the key ID and download the private key file.</li>
@@ -262,7 +268,8 @@
       const pem = $("#setPem").value.trim(), keyId = $("#setKeyId").value.trim();
       if (pem || keyId) { if (!pem || !keyId) throw new Error("Enter both the API key ID and the private key."); await saveCred(keyId, pem); $("#setPem").value = ""; $("#setKeyId").value = ""; }
       const maxOrder = Math.min(1000, Math.max(1, +$("#setMax").value || 25));
-      saveSettings({ relay, maxOrder, quickAmount: Math.min(maxOrder, Math.max(1, +$("#setQuick").value || 5)), enabled: $("#setOn").checked && !!(await getCred()) });
+      saveSettings({ ...settings(), relay, maxOrder, quickAmount: Math.min(maxOrder, Math.max(1, +$("#setQuick").value || 5)), enabled: $("#setOn").checked && !!(await getCred()),
+        botPct: Math.min(100, Math.max(1, Math.round(+$("#setBotPct").value || 10))) });
     };
     $("#setTest").onclick = async () => { try { await persist(); msg("Testing…"); const info = await balanceInfo();
       msg(`Connected. Kalshi balance: <b>${usd(info.total)}</b>${info.shards.length > 1 ? ` <span class="pl-sub">(${esc(describeBalances(info))})</span>` : ""}${info.subaccountKey ? `<br><span style="color:var(--amber)">This API key is tied to a subaccount, so it only sees that subaccount's money.</span>` : ""}${info.key && !info.key.scopes.some(x => /write/.test(x)) ? `<br><span style="color:var(--amber)">This API key is read-only, so it can't place orders.</span>` : ""}`); } catch (e) { msg(esc(e.message), true); } };
@@ -351,11 +358,11 @@
     `Price moved: ${buy.toUpperCase()} was ${Math.round(was * 100)}¢, now ${Math.round(now * 100)}¢.\n` +
     (prob != null ? `We make it ${Math.round(prob * 100)}% · EV ${ev >= 0 ? "+" : ""}${(ev * 100).toFixed(1)}¢ per contract${ev < 0 ? " (no edge at this price)" : ""}.\n` : "") +
     `Accept ${Math.round(now * 100)}¢ and place the bet?`));
-  async function quickBet({ p, sport, stat, label, best, confirmMove = confirmMoveDefault }) {
+  async function quickBet({ p, sport, stat, label, best, confirmMove = confirmMoveDefault, amount: amountOverride, auto = false }) {
     const s = settings();
     if (!s.enabled || !(await getCred())) throw new Error("Turn on order placement and add your Kalshi key in Settings.");
     if (!best?.tk) throw new Error("No Kalshi market for this pick.");
-    const amount = Math.min(s.quickAmount ?? 5, s.maxOrder);
+    const amount = Math.min(amountOverride ?? s.quickAmount ?? 5, s.maxOrder);
     const m = await market(best.tk);
     if (m?.status && !/active|open/i.test(m.status)) throw new Error("This market isn't open for trading.");
     const buy = best.side === "over" ? "yes" : "no";
@@ -377,7 +384,8 @@
     const z = size(amount, ask, s.maxOrder);
     if (!z.contracts) throw new Error(`$${amount} doesn't buy a contract at ${Math.round(ask * 100)}¢.`);
     const clientId = (root.crypto.randomUUID && root.crypto.randomUUID()) || String(Date.now());
-    const r = await withFundsFix(best.tk, z.cost, () => placeOrder({ ticker: best.tk, buy, contracts: z.contracts, price: ask, clientId: (root.crypto.randomUUID && root.crypto.randomUUID()) || clientId + Math.random() }));
+    const r = await withFundsFix(best.tk, z.cost, () => placeOrder({ ticker: best.tk, buy, contracts: z.contracts, price: ask, clientId: (root.crypto.randomUUID && root.crypto.randomUUID()) || clientId + Math.random() }),
+      auto ? () => true : undefined);   // the bot may move its own money between Kalshi shards
     const filled = Math.floor(parseFloat(r.fill_count ?? r.order?.fill_count_fp ?? 0));
     if (!filled) throw new Error(`No fill at ${Math.round(ask * 100)}¢: the price moved again before the order arrived. Nothing was bought.`);
     const avgYes = r.average_fill_price != null ? +r.average_fill_price : null;
@@ -385,7 +393,7 @@
     const fee = r.average_fee_paid != null ? +r.average_fee_paid * filled : takerFee(filled, each);
     const cost = +(filled * each + fee).toFixed(2);
     root.PropBets?.addBet?.({ p, sport, stat, label, side: best.side, line: best.line, price: root.PropModel.toAmerican(Math.min(0.99, cost / filled)),
-      book: "Kalshi", stake: cost, prob: best.prob, real: { orderId: r.order_id, ticker: best.tk, href: best.href || href(best), contracts: filled, buy } });
+      book: "Kalshi", stake: cost, prob: best.prob, real: { orderId: r.order_id, ticker: best.tk, href: best.href || href(best), contracts: filled, buy, bot: auto || undefined } });
     return { filled, each, cost, buy };
   }
 
