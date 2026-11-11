@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { eventSuffix, measureCrossing, measureScoreReaction, espnIncrements, median, stateAt } from "../scripts/kalshi-latency.mjs";
+import { propStatOf, eventSuffix, measureCrossing, measureScoreReaction, espnIncrements, median, stateAt } from "../scripts/kalshi-latency.mjs";
 
 test("Kalshi event suffix uses the US-Eastern date and NBA tricodes", () => {
   assert.equal(eventSuffix("2026-11-11T00:30:00Z", "BOS", "PHI"), "26NOV10BOSPHI"); // 7:30pm ET on Nov 10
@@ -166,4 +166,13 @@ test("live paper trader: real-time lookups, settled hold, timed exit, skips", as
   const r = pt.report();
   assert.equal(r.summary.trades, 2); assert.equal(r.skipped.tooExpensive, 1); assert.equal(r.skipped.noPrice, 1);
   assert.equal(r.summary.pnl, +(settled.pnl + rung.pnl).toFixed(2));
+});
+
+test("protected and PRA prop series map to the live stat they track", () => {
+  assert.equal(propStatOf("KXNBAPTS", "nba"), "pts");
+  assert.equal(propStatOf("KXNBAPTSPROT", "nba"), "pts");
+  assert.equal(propStatOf("KXNBA3PTPROT", "nba"), "fg3");
+  assert.equal(propStatOf("KXNBAPRAPROT", "nba"), "pra");
+  assert.equal(propStatOf("KXNFLRECYDSPROT", "nfl"), "rec_yds");
+  assert.equal(propStatOf("KXNBAGAME", "nba"), null);
 });
