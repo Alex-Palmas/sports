@@ -52,8 +52,9 @@
     prevSeason: 1,                 // extra weight on last season's games (<1 favors this season)
     longShrink: 0.2,               // pull recent form toward the player's longer-term average
     minutesWeight: 1,              // how much of the minutes trend to apply
-    dvpWeight: 0.6, venueWeight: 0.3, restWeight: 0.5, b2b: 0.97, teammateWeight: 0.7,
+    dvpWeight: 0.6, dvpK: 40, dvpCap: 0.15, venueWeight: 0.3, restWeight: 0.5, b2b: 0.97, teammateWeight: 0.7,
     sdShrink: 0.5, cv: 0.35,       // spread: player's own sd blended with cv × mean
+    sdMinCur: 8,                   // measure that sd on this season's games once there are this many
     countDisp: 1.2,                // count stats: variance = mean × countDisp (negative binomial)
     skew: 1,                       // 1: yardage/points use a right-skewed (negative binomial) curve, 0: normal
     empWeight: 0.25,               // blend with the smoothed last-20 hit rate
@@ -63,9 +64,9 @@
   };
   // fitted by `node scripts/backtest-model.mjs --tune` (see site/model-report.json)
   const PARAMS = {
-    nba: { restWeight: 0, cv: 0.45 },
-    nfl: { halfLife: 3, venueWeight: 0, cv: 0.7, empWeight: 0.4 },
-    nhl: { halfLife: 12, longShrink: 0.35, dvpWeight: 0, sdShrink: 0.75, countDisp: 1.1, empWeight: 0.1 },
+    nba: { restWeight: 0, cv: 0.45, prevSeason: 0.35, dvpK: 80, dvpCap: 0.08 },
+    nfl: { halfLife: 3, venueWeight: 0, cv: 0.7, empWeight: 0.4, prevSeason: 0.7 },
+    nhl: { halfLife: 12, longShrink: 0.35, dvpWeight: 0, sdShrink: 0.75, countDisp: 1.1, empWeight: 0.1, prevSeason: 0.7 },
     mlb: {},
   };
   const cfg = (league, over) => ({ ...DEFAULT, ...(PARAMS[league] || {}), ...(over || {}) });
@@ -95,7 +96,9 @@
     if (!vals.length) return null;
     const parts = [];
     const season = logs[0]?.season, sw = logs.map(l => l.season === season ? 1 : C.prevSeason);
-    const ew = ewMean(vals, C.halfLife, sw), longAvg = mean(all);
+    // longer-term average also counts last season's games at prevSeason weight
+    const allW = (p.logs || []).map(l => l.season === season ? 1 : C.prevSeason), longAvg = all.reduce((a, v, i) => a + v * allW[i], 0) / (allW.reduce((a, b) => a + b, 0) || 1);
+    const ew = ewMean(vals, C.halfLife, sw);
     let mu = (1 - C.longShrink) * ew + C.longShrink * longAvg;
     const form = mu;
     parts.push({ key: "form", label: `Recent form (weighted toward the last ~${Math.round(C.halfLife)} games, regressed ${Math.round(C.longShrink * 100)}% to his ${all.length}-game average)`, value: +mu.toFixed(2) });
@@ -108,7 +111,8 @@
     }
     // defense vs. position
     const f = p.dvp?.factor?.[stat], n = p.dvp?.n?.[stat] || 0;
-    if (f && C.dvpWeight) { const mult = clamp(1 + (f - 1) * Math.min(1, n / 40) * C.dvpWeight, 0.85, 1.15); if (Math.abs(mult - 1) > 0.002) { mu *= mult; parts.push({ key: "matchup", label: `${p.opp} vs ${p.dvp.group}s (rank ${p.dvp.rank?.[stat]}/${p.dvp.of})`, mult }); } }
+    // shrunk by the sample behind it (player-games vs this opponent's position group) and capped
+    if (f && C.dvpWeight) { const mult = clamp(1 + (f - 1) * (C.dvpK === 40 ? Math.min(1, n / 40) : n / (n + C.dvpK)) * C.dvpWeight, 1 - C.dvpCap, 1 + C.dvpCap); if (Math.abs(mult - 1) > 0.002) { mu *= mult; parts.push({ key: "matchup", label: `${p.opp} vs ${p.dvp.group}s (rank ${p.dvp.rank?.[stat]}/${p.dvp.of})`, mult }); } }
     // home/away
     const home = logs.filter(l => l.home), away = logs.filter(l => !l.home);
     if (home.length >= 5 && away.length >= 5 && C.venueWeight) {
@@ -144,7 +148,9 @@
     const bounded = clamp(mu, form * 0.75, form * 1.35 + 0.3);
     if (Math.abs(bounded - mu) > 1e-9) { parts.push({ key: "cap", label: "Total adjustment capped", mult: bounded / mu }); mu = bounded; }
     // spread of outcomes: the player's own (last 20) blended with a typical spread for this mean
-    const recent = vals.slice(0, 20), psd = sd(recent);
+    // spread of outcomes from this season's games when there are enough (a past role/injury distorts it)
+    const curVals = logs.filter(l => l.season === season).map(l => l.stats?.[stat] ?? 0);
+    const recent = curVals.length >= (C.sdMinCur ?? 99) ? curVals.slice(0, 20) : vals.slice(0, 20), psd = sd(recent);
     const sdv = recent.length >= 8 ? (1 - C.sdShrink) * psd + C.sdShrink * C.cv * Math.max(mu, 0.5) : C.cv * Math.max(mu, 0.5);
     const dist = COUNT_STATS.has(stat) && mu < 12 ? "count" : C.skew ? "skew" : "normal";
     const varCount = Math.max(mu * C.countDisp, recent.length >= 8 ? (1 - C.sdShrink) * psd * psd + C.sdShrink * mu * C.countDisp : 0);
@@ -184,7 +190,7 @@
    * Best EV quote across books/Kalshi for a player/stat (each quote at its own line).
    * Our probability is blended with the market's vig-free price at that line (marketWeight), so the
    * model has to disagree with the market by a lot before it calls an edge, and long shots
-   * (beyond ±400) aren't ranked: that's where small-sample models are least reliable.
+   * (beyond +300, or favorites beyond -400) aren't ranked: that's where small-sample models are least reliable.
    */
   function bestBet(p, stat, league) {
     const C = cfg(league), proj = project(p, stat, league); if (!proj) return null;
@@ -192,7 +198,7 @@
     const base = probabilities(p, stat, line, proj, league);
     let best = null;
     for (const q of p.market?.[stat] || []) for (const side of ["over", "under"]) {
-      const price = side === "over" ? q.o : q.u; if (price == null || price > 400 || price < -400) continue;
+      const price = side === "over" ? q.o : q.u; if (price == null || price > 300 || price < -400) continue;
       const pr = probabilities(p, stat, q.l, proj, league), mine = side === "over" ? pr.over : pr.under, mk = marketProb(q, side);
       const prob = mk == null ? mine : (1 - C.marketWeight) * mine + C.marketWeight * mk;
       const e = ev(prob, price);
@@ -225,6 +231,16 @@
     const inj = String(p.injury || "");
     hit(/question|day|doubt|probable|gtd/i.test(inj) ? 20 : 0, `Player is ${inj.toLowerCase()}`, "injury");
     const tq = (p.teammatesQuestionable || []).length; hit(Math.min(10, tq * 5), `${tq} teammate${tq === 1 ? "" : "s"} questionable`, "tmq");
+    // the market's own center: the line priced closest to 50/50 (books or Kalshi). A projection far from it
+    // (even when the bet itself is a long-shot alt line) usually means the market knows something.
+    const qs = (p.market?.[stat] || []).filter(q => q.o != null && q.u != null);
+    if (qs.length) {
+      const fair = q => { const io = impl(q.o), iu = impl(q.u); return io / (io + iu); };
+      const mainQ = qs.slice().sort((a, b) => Math.abs(fair(a) - 0.5) - Math.abs(fair(b) - 0.5))[0];
+      const me = probabilities(p, stat, mainQ.l, proj, league)?.over, mk = fair(mainQ);
+      const gap = me == null ? 0 : Math.abs(me - mk);
+      hit(Math.round(clamp((gap - 0.08) * 150, 0, 30)), `Projection far from the market's main line (${Math.round(me * 100)}% vs ${Math.round(mk * 100)}% over ${mainQ.l})`, "mainline");
+    }
     if (best !== undefined) {
       if (!best) hit(15, "No price to compare with the market", "noprice");
       else {
