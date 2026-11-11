@@ -118,7 +118,14 @@
 
   // ---------------------------------------------------------------- settings & storage (browser)
   const LS = (typeof window !== "undefined" && window.PROPLAB_NS || "proplab:") + "kalshi";
-  const settings = () => { try { return { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, ...JSON.parse(localStorage.getItem(LS) || "{}") }; } catch { return { relay: "http://localhost:8787", maxOrder: 25, enabled: false }; } };
+  // the PropLab Mac app runs its own relay and tells the page where it is
+  const desktopRelay = () => (typeof window !== "undefined" && window.PROPLAB_DESKTOP?.relay) || null;
+  const settings = () => {
+    let s; try { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, ...JSON.parse(localStorage.getItem(LS) || "{}") }; }
+    catch { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5 }; }
+    if (desktopRelay()) s.relay = desktopRelay();
+    return s;
+  };
   const saveSettings = s => { try { localStorage.setItem(LS, JSON.stringify(s)); } catch {} };
   const idb = () => new Promise((res, rej) => { const r = indexedDB.open("proplab-kalshi", 1); r.onupgradeneeded = () => r.result.createObjectStore("keys"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
   async function idbDo(mode, fn) { const db = await idb(); return new Promise((res, rej) => { const tx = db.transaction("keys", mode), st = tx.objectStore("keys"), r = fn(st); tx.oncomplete = () => res(r?.result); tx.onerror = () => rej(tx.error); }); }
@@ -141,7 +148,7 @@
     const headers = { "content-type": "application/json", ...(signed ? await authHeaders(cred, method, full) : {}) };
     let r;
     try { r = await fetch(s.relay.replace(/\/+$/, "") + full, { method, headers, body: body ? JSON.stringify(body) : undefined }); }
-    catch { throw new Error(`Couldn't reach your relay at ${s.relay}. Is it running? (see Settings → How to set up)`); }
+    catch { if (desktopRelay()) throw new Error("Couldn't reach Kalshi through the app's built-in relay. Check your internet connection and try again."); throw new Error(`Couldn't reach your relay at ${s.relay}. Is it running? (see Settings → How to set up)`); }
     const txt = await r.text(); let j = null; try { j = JSON.parse(txt); } catch {}
     if (!r.ok) throw new Error(`Kalshi ${r.status}: ${j?.error?.message || j?.message || j?.error || txt.slice(0, 200) || r.statusText}`);
     return j;
@@ -166,7 +173,8 @@
       <label>API key ID <input id="setKeyId" type="text" autocomplete="off" spellcheck="false" placeholder="${cred ? "leave blank to keep the saved key" : "e.g. a952bcbe-ec3b-4b5b-…"}"/></label>
       <label>Private key (RSA or Ed25519) <textarea id="setPem" rows="4" spellcheck="false" autocomplete="off" placeholder="-----BEGIN … PRIVATE KEY-----&#10;(RSA or Ed25519)&#10;-----END … PRIVATE KEY-----"></textarea></label>
       <label class="file-pick">or load the key file <input id="setFile" type="file" accept=".pem,.key,.txt"/></label>
-      <label>Relay URL <input id="setRelay" type="url" value="${esc(s.relay)}"/></label>
+      ${desktopRelay() ? `<div class="set-acct"><span>Relay: <b>built into the PropLab app</b></span><span class="tag won">connected</span></div><input id="setRelay" type="hidden" value="${esc(s.relay)}"/>`
+        : `<label>Relay URL <input id="setRelay" type="url" value="${esc(s.relay)}"/></label>`}
       <div class="tf-grid">
         <label>Max per order ($) <input id="setMax" type="number" min="1" max="1000" step="1" value="${esc(s.maxOrder)}"/></label>
         <label>"Bet" button amount ($) <input id="setQuick" type="number" min="1" max="1000" step="1" value="${esc(s.quickAmount ?? 5)}"/></label>
@@ -186,8 +194,8 @@
     if ($("#setSignOut")) $("#setSignOut").onclick = () => root.PropAuth?.lock();
     if ($("#setForget")) $("#setForget").onclick = async () => { await forget(); saveSettings({ ...settings(), enabled: false }); openSettings(); };
     const persist = async () => {
-      const relay = $("#setRelay").value.trim() || "http://localhost:8787";
-      if (!/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(relay)) throw new Error("The relay URL must be https://… (or http://localhost for a relay on this computer).");
+      const relay = desktopRelay() || $("#setRelay").value.trim() || "http://localhost:8787";
+      if (!desktopRelay() && !/^https:\/\/|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(relay)) throw new Error("The relay URL must be https://… (or http://localhost for a relay on this computer).");
       const pem = $("#setPem").value.trim(), keyId = $("#setKeyId").value.trim();
       if (pem || keyId) { if (!pem || !keyId) throw new Error("Enter both the API key ID and the private key."); await saveCred(keyId, pem); $("#setPem").value = ""; $("#setKeyId").value = ""; }
       const maxOrder = Math.min(1000, Math.max(1, +$("#setMax").value || 25));

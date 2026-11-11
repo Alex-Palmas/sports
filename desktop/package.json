@@ -1,0 +1,28 @@
+{
+  "name": "proplab-desktop",
+  "productName": "PropLab",
+  "version": "1.0.0",
+  "description": "PropLab for Mac: the live PropLab site with a built-in Kalshi relay",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "prestart": "node copy-relay.cjs",
+    "start": "electron .",
+    "build": "node copy-relay.cjs && electron-builder --mac --dir --arm64 --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.proplab.desktop",
+    "productName": "PropLab",
+    "files": ["main.js", "preload.js", "relay-server.mjs", "relay.mjs", "offline.html", "package.json"],
+    "mac": {
+      "category": "public.app-category.sports",
+      "icon": "build/icon.png",
+      "identity": null,
+      "target": ["dir"]
+    }
+  }
+}

@@ -2,7 +2,15 @@
 
 PropLab can send a real order to your Kalshi account for a prop you like. It's off until you turn it on.
 
-## Setup (once)
+## Easiest: the Mac app
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Alex-Palmas/sports/main/desktop/install.sh | bash
+```
+
+PropLab for Mac shows the live website (always the current version) and has the relay built in, so there's nothing else to run: open Settings, add your key, Test connection. Run the same command again to update the app shell (rarely needed). Built by `.github/workflows/desktop.yml` into the `desktop-latest` release.
+
+## Setup in a browser (once)
 
 1. **API key.** On kalshi.com: Account & security → API keys → Create key (RSA or Ed25519 both work). Save the key ID and the private key (it's shown only once). PropLab accepts the PEM file, or for Ed25519 the bare key as base64 or hex.
 2. **Relay.** Kalshi blocks requests coming from web pages, so the site sends its orders through a tiny relay you control. The relay never sees your key; it only forwards requests your browser has already signed.
