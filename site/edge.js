@@ -150,9 +150,11 @@
     finally { live.busy = false; }
   }
   /** Start (or keep) the refresh loop for this view; it stops itself when the Edge tab is hidden. */
-  function startLive(el, DATA, api) {
+  function startLive(el, DATA0, api) {
+    live.data = live.data || DATA0;
     if (live.timer) return;
     const tick = async () => {
+      const DATA = live.data;
       const botOn = !!botState().on;
       if (el.hidden && !botOn) { clearInterval(live.timer); live.timer = null; return; }
       if (document.hidden && !botOn) return;
@@ -262,7 +264,22 @@
     return `Auto bet on · today ${money(st.spent || 0)} of ${money(st.budget)} (${st.pct}% of ${money(st.balance)}) · ${st.bets || 0} bet${st.bets === 1 ? "" : "s"}${st.unit != null ? (st.unit < 1 ? " · 1 contract per pick" : ` · ${money(st.unit)} per bet`) : ""}`;
   }
 
+  // picks seen this session: a pick that first shows up after the board is open gets a NEW badge for 15 minutes
+  const seenPicks = new Map(); let seenInit = false;
+  function markNew(list) {
+    const now = Date.now(); let fresh = 0;
+    for (const x of list) {
+      if (!x.r.best) continue;
+      const k = pickKey(x);
+      if (!seenPicks.has(k)) seenPicks.set(k, seenInit ? now : 0);
+      x.isNew = seenPicks.get(k) > 0 && now - seenPicks.get(k) < 15 * 60e3;
+      if (x.isNew) fresh++;
+    }
+    seenInit = true; return fresh;
+  }
+
   function render(el, DATA, api, fromLive) {
+    live.data = DATA;
     startLive(el, DATA, api);
     live.pending = false;
     const scrollY = fromLive ? window.scrollY : null;
@@ -273,6 +290,7 @@
     const all = ranked.filter(x => opts.day === "all" || dayKey(x.p.gameDate) === opts.day)
       .map((x, i) => ({ ...x, day: dayKey(x.p.gameDate), i })).sort((a, b) => a.day.localeCompare(b.day) || a.i - b.i);
     const perDay = {}; for (const x of all) perDay[x.day] = (perDay[x.day] || 0) + 1;
+    const freshN = markNew(all);
     const ks = window.PropKalshi?.settings?.() || {}, quick = ks.enabled ? Math.min(ks.quickAmount ?? 5, ks.maxOrder ?? 25) : 0, qi = [];
     const taken = {}, shown = all.filter(x => (taken[x.day] = (taken[x.day] || 0) + 1) <= opts.show);   // each day gets its own top N
     let lastDay = null, rank = 0;
@@ -289,7 +307,7 @@
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
       ${accuracy(DATA)}
-      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button>
+      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button>
         ${window.PropKalshi ? `<label class="check bot-toggle"><input type="checkbox" id="edgeBot"${botState().on ? " checked" : ""}/> Auto bet</label>` : ""}</div>
       ${window.PropKalshi && (botState().on || botState().stopped) ? `<div class="card bot-box${botState().on ? " on" : ""}"><div>${botSummary()}</div>${(botState().log || []).length ? `<details><summary class="pl-sub">Bot activity</summary><ul class="bot-log">${botState().log.slice().reverse().slice(0, 12).map(l => `<li><span class="pl-sub">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span> ${esc(l.text)}</li>`).join("")}</ul></details>` : ""}</div>` : ""}
       <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
@@ -298,10 +316,10 @@
         let head = "";
         if (x.day !== lastDay) { lastDay = x.day; rank = 0; head = `<h3 class="day-head"><span>${esc(dayLabel(x.day))}</span><span class="pl-sub">${perDay[x.day] > opts.show ? `top ${opts.show} of ${perDay[x.day]}` : `${perDay[x.day]} prop${perDay[x.day] === 1 ? "" : "s"}`}</span></h3>`; }
         const i = rank++;
-        return `${head}<div class="card edge-row" role="button" tabindex="0" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">
+        return `${head}<div class="card edge-row${x.isNew ? " is-new" : ""}" role="button" tabindex="0" data-pid="${esc(p.id)}" data-k="${esc(stat)}" data-sport="${esc(lg)}">
           <span class="er-rank">${i + 1}</span>
           ${api.avatar(p, 44, "", sp)}
-          <span class="er-main"><b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}${p.gameDate ? ` · ${esc(when(p.gameDate))}` : ""}</span>
+          <span class="er-main">${x.isNew ? `<span class="new-badge" title="Showed up since you opened the board">NEW</span> ` : ""}<b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}${p.gameDate ? ` · ${esc(when(p.gameDate))}` : ""}</span>
             <span class="er-prop">${b ? `${b.side === "over" ? "Over" : "Under"} ${b.line}` : `Line ${r.line}`} ${esc(label)} <span class="pl-sub">· projection <b>${r.proj.mean}</b></span></span>
             ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}${movedTag(p, stat, b)}${(() => { const bp = botState().placed?.[pickKey(x)]; return bp ? `<span class="tag won" title="Placed by Auto bet">bot · ${bp.contracts}× @${bp.cents}¢</span>` : ""; })()}${b.tk && quick ? `<button type="button" class="qbet" data-qbet="${qi.push(x) - 1}" data-action="${L.action}" data-cents="${L.cents ?? ""}">Bet $${quick}</button>` : ""}</span>`; })()}` : ""}
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
@@ -368,5 +386,5 @@
   }
   /** On page load: if Auto bet was left on, keep it running even before the Edge tab is opened. */
   function boot(el, DATA, api) { if (botState().on) startLive(el, DATA, api); }
-  window.PropEdge = { render, chips, confBadge, refreshLive, live, boot, botSummary, runBot, botState };
+  window.PropEdge = { render, chips, confBadge, refreshLive, live, boot, botSummary, runBot, botState, setData: d => { live.data = d; } };
 })();

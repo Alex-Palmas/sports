@@ -1,4 +1,5 @@
 site/data.json
+site/data-version.json
 .cache/
 node_modules/
 site/latency/live.json
