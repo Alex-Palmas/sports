@@ -59,8 +59,9 @@
     skew: 1,                       // 1: yardage/points use a right-skewed (negative binomial) curve, 0: normal
     empWeight: 0.25,               // blend with the smoothed last-20 hit rate
     calA: 1, calB: 0,              // final logistic recalibration: logit(p') = calA·logit(p) + calB
-    marketWeight: 0.65,            // EV: weight on the market's vig-free price vs ours. The market sees news and
-                                   // minutes we can't, so it starts above half; the live ledger refits it.
+    marketWeight: 0.9,             // EV: weight on the market's vig-free price vs ours where no fitted layer exists.
+                                   // On real Kalshi NBA results the price beat our projection everywhere, so the
+                                   // projection only nudges it (NBA Kalshi quotes use EDGE_FIT instead).
   };
   // fitted by `node scripts/backtest-model.mjs --tune` (see site/model-report.json)
   const PARAMS = {
@@ -70,6 +71,18 @@
     mlb: {},
   };
   const cfg = (league, over) => ({ ...DEFAULT, ...(PARAMS[league] || {}), ...(over || {}) });
+  /**
+   * Final edge layer for Kalshi quotes, fitted on settled Kalshi markets by scripts/market-fit.mjs:
+   *   logit P(yes) = b0 + bMid·logit(market mid) + Σ coefficient·edgeFeatures()
+   * Fitted out of sample (leave-one-day-out); variables that didn't improve on the market were dropped.
+   */
+  const EDGE_FIT = {
+    // 28,431 settled Kalshi NBA prop markets, Oct 20 – Nov 10 2026. The market price was already
+    // well calibrated; the only lasting bias is that overs on combo stats (PRA) run ~2–3 points rich.
+    // Our projection, line movement, minutes trend, home/away, rest, matchup and the line's distance
+    // from the projection all failed to improve on the price out of sample, so none are used.
+    nba: { n: 28431, days: 21, through: "2026-11-10", b0: 0.0533, bMid: 1.0159, statCombo: -0.2115, statPts: -0.0684 },
+  };
 
   // negative binomial P(X ≤ k) with mean mu and variance v (> mu); Poisson when v ≤ mu
   function countCdf(k, mu, v) {
@@ -200,7 +213,11 @@
     for (const q of p.market?.[stat] || []) for (const side of ["over", "under"]) {
       const price = side === "over" ? q.o : q.u; if (price == null || price > 300 || price < -400) continue;
       const pr = probabilities(p, stat, q.l, proj, league), mine = side === "over" ? pr.over : pr.under, mk = marketProb(q, side);
-      const prob = mk == null ? mine : (1 - C.marketWeight) * mine + C.marketWeight * mk;
+      const fitted = edgeOver(q, { p, stat, proj, league, modelOver: pr.over });
+      // Kalshi quote with a fitted layer: use it. Elsewhere blend with the market (NBA: the market alone,
+      // since on real Kalshi results our projection added nothing the price didn't already have).
+      const w = EDGE_FIT[league] ? 1 : C.marketWeight;
+      const prob = fitted != null ? (side === "over" ? fitted : 1 - fitted) : mk == null ? mine : (1 - w) * mine + w * mk;
       const e = ev(prob, price);
       if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null, ya: q.ya ?? null, na: q.na ?? null };
     }
@@ -360,6 +377,47 @@
     return { prob: pp, line: dl };
   }
 
-  const api = { kalshiLeg, seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
+  /** Kalshi quote → { mid, bid, ask, mid0 } (mid0: the first price seen today at the same strike). */
+  function kalshiMid(q) {
+    if (q?.ya == null || q?.na == null) return null;
+    const bid = 1 - q.na, mid = (q.ya + bid) / 2;
+    let mid0 = null;
+    if (q.ol === q.l && q.oo != null && q.ou != null && (q.oo !== q.o || q.ou !== q.u)) { const yo = impl(q.oo), no = impl(q.ou); if (yo && no) mid0 = clamp((yo + 1 - no) / 2, 0.01, 0.99); }
+    return { mid, bid, ask: q.ya, mid0 };
+  }
+  /** Fitted P(over) at a Kalshi quote's strike, or null (no fit for this league, not a Kalshi quote). */
+  function edgeOver(q, { p, stat, proj, league, modelOver: mo }) {
+    const fit = EDGE_FIT[league], k = q?.b === "Kalshi" ? kalshiMid(q) : null;
+    if (!fit || !k || !(k.mid > 0.02 && k.mid < 0.98)) return null;
+    const f = edgeFeatures({ ...k, model: mo, stat, line: q.l, proj, p });
+    let x = fit.b0 + fit.bMid * logit(clamp(k.mid, 0.01, 0.99));
+    for (const [name, c] of Object.entries(fit)) if (name in f) x += c * f[name];
+    return clamp(sigmoid(x), 0.01, 0.99);
+  }
+  /**
+   * Variables for the final edge layer (fitted on settled Kalshi markets by scripts/market-fit.mjs).
+   * Everything here is known before tip-off: the quote, our model, the player's recent minutes,
+   * venue, rest, matchup and the stat family.
+   */
+  function edgeFeatures({ mid, bid, ask, mid0, model, stat, line, proj, p }) {
+    const lgt = x => logit(clamp(x, 0.01, 0.99));
+    const mins = (p?.logs || []).slice(0, 20).map(l => l.min).filter(m => m > 0);
+    const l5 = mean(mins.slice(0, 5)), l20 = mean(mins);
+    const dvpPart = (proj?.parts || []).filter(x => x.key === "matchup").reduce((a, x) => a * x.mult, 1);
+    const z = proj && proj.sd > 0 ? (line - proj.mean) / Math.max(proj.sd, 1) : 0;
+    return {
+      model: model == null ? 0 : lgt(model) - lgt(mid),
+      spread: ask != null && bid != null ? (ask - bid) * 10 : 0,
+      move: mid0 != null ? clamp(lgt(mid) - lgt(mid0), -2, 2) : 0,   // how far the price moved before tip (sharp money)
+      minTrend: mins.length >= 5 && l20 ? clamp(l5 / l20 - 1, -0.5, 0.5) * 5 : 0,
+      home: p?.home ? 1 : -1,
+      b2b: p?.restDays === 0 ? 1 : 0,
+      dvp: (dvpPart - 1) * 10,
+      statPts: stat === "pts" ? 1 : 0, statReb: stat === "reb" ? 1 : 0, statAst: stat === "ast" ? 1 : 0, stat3: stat === "fg3" ? 1 : 0,
+      statCombo: /^(pra|pr|pa|ra)$/.test(stat) ? 1 : 0, statDef: /^(stl|blk)$/.test(stat) ? 1 : 0,
+      farOver: clamp(z, 0, 3), farUnder: clamp(-z, 0, 3),
+    };
+  }
+  const api = { EDGE_FIT, edgeOver, kalshiMid, edgeFeatures, kalshiLeg, seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropModel = api;
 })(typeof window !== "undefined" ? window : globalThis);

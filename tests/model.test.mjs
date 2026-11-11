@@ -35,10 +35,26 @@ test("projection: recent form, teammate out, matchup and blowout factors", () =>
 test("probabilities blend model and history; best bet across quotes", () => {
   const p = { logs: logs(Array(20).fill(30)), lines: { pts: 24.5 }, market: { pts: [
     { b: "DraftKings", l: 24.5, o: -120, u: 100 }, { b: "Kalshi", l: 27.5, o: 110, u: -130 } ] } };
-  const r = M.bestBet(p, "pts", "nba");
-  assert.ok(r.probs.over > 0.8);
+  // leagues without a fitted layer: the projection still nudges the market price
+  const r = M.bestBet(p, "pts", "nfl");
+  assert.ok(r.probs.over > 0.75);
   assert.equal(r.best.side, "over"); assert.ok(r.best.ev > 0);
   assert.ok(r.fairOver < -200);
+  // NBA: on real Kalshi results the price beat the projection, so a confident projection alone is no edge
+  const n = M.bestBet(p, "pts", "nba");
+  assert.ok(n.probs.over > 0.8); assert.ok(n.best.ev <= 0.001, "market-anchored: no edge from the projection");
+});
+
+test("fitted Kalshi edge layer stays on the market price, marks combo overs down", () => {
+  const ctx = { p: { logs: logs(Array(20).fill(30)) }, proj: null, league: "nba", modelOver: 0.95 };
+  const pts = M.edgeOver({ b: "Kalshi", l: 29.5, ya: 0.51, na: 0.51 }, { ...ctx, stat: "pts" });   // mid 0.50
+  assert.ok(Math.abs(pts - 0.5) < 0.03, "ignores our 95%");
+  const pra = M.edgeOver({ b: "Kalshi", l: 39.5, ya: 0.51, na: 0.51 }, { ...ctx, stat: "pra" });
+  assert.ok(pra < pts - 0.03, "PRA overs run rich");
+  assert.equal(M.edgeOver({ b: "DraftKings", l: 29.5, o: -110, u: -110 }, { ...ctx, stat: "pts" }), null);
+  assert.equal(M.edgeOver({ b: "Kalshi", l: 29.5, ya: 0.51, na: 0.51 }, { ...ctx, stat: "pts", league: "nhl" }), null);
+  const k = M.kalshiMid({ b: "Kalshi", l: 9.5, ya: 0.6, na: 0.45, o: -150, u: 122, ol: 9.5, oo: -100, ou: -100 });
+  assert.ok(Math.abs(k.mid - 0.575) < 1e-9 && k.mid0 != null && k.mid0 < k.mid);
 });
 
 test("rest splits and correlation", () => {

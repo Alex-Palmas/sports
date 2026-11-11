@@ -12,6 +12,7 @@
     return `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
   }
   const evTxt = e => (e >= 0 ? "+" : "") + (e * 100).toFixed(1) + "%";
+  const fitN = () => (window.PropModel?.EDGE_FIT?.nba?.n || 28431).toLocaleString();
   let opts = { league: "all", minEv: 0.02, grades: ["High", "Medium", "Low"], sort: "ev", marketOnly: true, q: "", show: 60, day: "all", stat: "all" };
   // local calendar day of a game, and a friendly label for it
   const dayKey = iso => { if (!iso) return ""; const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
@@ -141,7 +142,7 @@
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
           <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}${b.book === "Kalshi" && (b.href || b.tk) && window.PropKalshi ? window.PropKalshi.link(b, "Open in Kalshi", "kalshi-link er-link") : ""}`
             : `<span class="er-ev">${pct(r.probs.over > 0.5 ? r.probs.over : r.probs.under)}</span><span class="pl-sub">${r.probs.over > 0.5 ? "over" : "under"} · fair ${odds(r.probs.over > 0.5 ? r.fairOver : r.fairUnder)}</span><span class="pl-sub">no price yet</span>${confBadge(r.confidence)}`}</span>
-        </div>`; }).join("") || `<div class="card empty">Nothing matches. Lower the minimum EV, or untick "Only props with a price".</div>`}</div>
+        </div>`; }).join("") || `<div class="card empty">Nothing clears the bar right now. Tested on ${fitN()} settled Kalshi NBA prop markets, Kalshi's own price was already accurate, and almost nothing beats it after the bid/ask spread and Kalshi's fee. An empty board is the honest answer most days. Lower the minimum EV to see the closest calls.</div>`}</div>
       ${all.length > shown.length ? `<button class="chip" id="edgeMore">Show more (${all.length - shown.length} left)</button>` : ""}`;
     const q = s => el.querySelector(s);
     q("#edgeLeague").onchange = e => { opts.league = e.target.value; save(); render(el, DATA, api); };

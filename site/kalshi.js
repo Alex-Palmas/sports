@@ -346,7 +346,15 @@
     const ask = +(buy === "yes" ? m.yes_ask_dollars : m.no_ask_dollars), was = buy === "yes" ? best.ya : best.na;
     if (!(ask > 0 && ask < 1)) throw new Error("No live price right now.");
     if (was != null && ask > was + 0.02) throw new Error(`Price moved to ${Math.round(ask * 100)}¢ (was ${Math.round(was * 100)}¢). Not placed.`);
-    if (best.prob != null && best.prob <= ask + takerFee(1, ask)) throw new Error(`No edge at the live price (${Math.round(ask * 100)}¢). Not placed.`);
+    // re-price our estimate at the live quote (it is anchored on the market price, which may have moved)
+    let prob = best.prob;
+    const PM = root.PropModel;
+    if (PM?.edgeOver) {
+      const proj = PM.project(p, stat, sport), pr = proj && PM.probabilities(p, stat, best.line, proj, sport);
+      const o = PM.edgeOver({ b: "Kalshi", l: best.line, ya: +m.yes_ask_dollars, na: +m.no_ask_dollars }, { p, stat, proj, league: sport, modelOver: pr?.over });
+      if (o != null) prob = best.side === "over" ? o : 1 - o;
+    }
+    if (prob != null && prob <= ask + takerFee(1, ask)) throw new Error(`No edge at the live price (${Math.round(ask * 100)}¢): we make it ${Math.round(prob * 100)}%. Not placed.`);
     const z = size(amount, ask, s.maxOrder);
     if (!z.contracts) throw new Error(`$${amount} doesn't buy a contract at ${Math.round(ask * 100)}¢.`);
     const clientId = (root.crypto.randomUUID && root.crypto.randomUUID()) || String(Date.now());
