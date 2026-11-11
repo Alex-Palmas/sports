@@ -161,7 +161,7 @@
   async function balanceInfo() {
     const j = await call("GET", "/portfolio/balance");
     const total = j.balance_dollars != null ? +j.balance_dollars : (j.balance ?? 0) / 100;
-    const shards = (j.balance_breakdown || []).map(b => ({ index: +b.exchange_index, balance: b.balance_dollars != null ? +b.balance_dollars : (+b.balance || 0) / 100 })).sort((a, b) => a.index - b.index);
+    const shards = (j.balance_breakdown || []).map(b => ({ index: +b.exchange_index, balance: +(b.balance_dollars ?? b.balance ?? 0) || 0 })).sort((a, b) => a.index - b.index);
     let key = null;
     try { const cred = await getCred(); const k = (await call("GET", "/api_keys")).api_keys?.find(x => x.api_key_id === cred?.keyId); if (k) key = { scopes: k.scopes || [], subaccount: k.subaccount ?? null }; } catch {}
     return { total, shards, subaccountKey: !j.balance_breakdown || key?.subaccount != null, key };
