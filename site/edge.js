@@ -126,9 +126,11 @@
     }
     return out;
   }
-  async function refreshLive(DATA) {
+  async function refreshLive(DATA, force) {
     const K = window.PropKalshi, M = window.PropModel;
     if (live.busy || !K?.markets) return false;
+    if (!force && live.at && live.atData === DATA && Date.now() - live.at < 15e3) return true;   // just refreshed this data
+    live.tried = true;
     const qs = kalshiQuotes(DATA); if (!qs.length) return false;
     live.busy = true;
     try {
@@ -144,7 +146,7 @@
         q.o = M.toAmerican(Math.min(0.99, ya + feeOf(ya))); q.u = M.toAmerican(Math.min(0.99, na + feeOf(na)));
         if (m.volume_fp != null) q.vol = Math.round(parseFloat(m.volume_fp));
       }
-      live.at = Date.now(); live.err = null; live.n = ms.length; live.moved = moved;
+      live.at = Date.now(); live.atData = DATA; live.err = null; live.n = ms.length; live.moved = moved;
       return true;
     } catch (e) { live.err = e.message; return false; }
     finally { live.busy = false; }
@@ -272,7 +274,9 @@
           botLog(st, `Bought ${r.filled} ${r.buy.toUpperCase()} @ ${Math.round(r.each * 100)}¢ · ${x.p.name} ${b.side === "over" ? "over" : "under"} ${b.line} ${x.label} · ${money(r.cost)}`);
           saveBot(st);
         } catch (e) {
-          st = botState(); (st.tries ||= {})[k] = (st.tries[k] || 0) + 1;
+          st = botState();
+          if (/\b429\b|too many requests/i.test(e.message)) { botLog(st, "Kalshi rate limit: pausing until the next check"); saveBot(st); break; }
+          (st.tries ||= {})[k] = (st.tries[k] || 0) + 1;
           const soft = /Not placed|No edge|No live price|isn't open|doesn't buy|No fill|No Kalshi market/i.test(e.message);
           if (!soft) { st.on = false; st.stopped = e.message; botLog(st, `Stopped: ${e.message}`); saveBot(st); break; }
           botLog(st, `Skipped ${x.p.name} ${x.label}: ${e.message}`); saveBot(st);
@@ -302,7 +306,7 @@
       x.isNew = seenPicks.get(k) > 0 && now - seenPicks.get(k) < 15 * 60e3;
       if (x.isNew) fresh++;
     }
-    seenInit = true; return fresh;
+    seenInit = !!live.tried; return fresh;   // the first board after live prices load (or fail) is the baseline
   }
 
   function render(el, DATA, api, fromLive) {
@@ -386,7 +390,7 @@
     };
     q("#edgeRefresh").onclick = async e => {
       const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Refreshing…";
-      await refreshLive(DATA); if (botState().on) await runBot(DATA); render(el, DATA, api, true);
+      await refreshLive(live.data, true); if (botState().on) await runBot(live.data); render(el, live.data, api, true);
     };
     if (q("#edgeMore")) q("#edgeMore").onclick = () => { opts.show += 60; render(el, DATA, api); };
     // one-tap Kalshi bet: first tap asks to confirm (what, price, amount), second tap places it
