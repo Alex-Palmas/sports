@@ -142,15 +142,30 @@
   async function saveCred(keyId, pem) { const { key, alg } = await importPem(pem); const c = { keyId: keyId.trim(), key, alg, savedAt: new Date().toISOString() }; await idbDo("readwrite", s => s.put(c, KEY_SLOT())); credCache = c; return c; }
   async function forget() { await idbDo("readwrite", s => s.delete(KEY_SLOT())); credCache = null; }
 
+  // Kalshi rate-limits per account/IP: every request goes through one queue spaced ~150 ms apart
+  // (≈6 per second), and a 429 "too many requests" waits (Retry-After, else 1s, 2s, 4s, 8s) and retries.
+  const GAP_MS = 150;
+  let queue = Promise.resolve(), lastAt = 0;
+  const pace = () => { const p = queue.then(async () => { const w = lastAt + GAP_MS - Date.now(); if (w > 0) await new Promise(r => setTimeout(r, w)); lastAt = Date.now(); }); queue = p.catch(() => {}); return p; };
   async function call(method, path, body, signed = true) {
     const s = settings(), cred = signed ? await getCred() : null;
     if (signed && !cred) throw new Error("Add your Kalshi API key in Settings first.");
     const full = `/trade-api/v2${path}`;
-    const headers = { "content-type": "application/json", ...(signed ? await authHeaders(cred, method, full) : {}) };
     let r;
-    try { r = await fetch(s.relay.replace(/\/+$/, "") + full, { method, headers, body: body ? JSON.stringify(body) : undefined }); }
-    catch { if (desktopRelay()) throw new Error("Couldn't reach Kalshi through the app's built-in relay. Check your internet connection and try again."); throw new Error(`Couldn't reach your relay at ${s.relay}. Is it running? (see Settings → How to set up)`); }
+    for (let attempt = 0; ; attempt++) {
+      await pace();
+      // signed fresh each try: the signature includes the timestamp
+      const headers = { "content-type": "application/json", ...(signed ? await authHeaders(cred, method, full) : {}) };
+      try { r = await fetch(s.relay.replace(/\/+$/, "") + full, { method, headers, body: body ? JSON.stringify(body) : undefined }); }
+      catch { if (desktopRelay()) throw new Error("Couldn't reach Kalshi through the app's built-in relay. Check your internet connection and try again."); throw new Error(`Couldn't reach your relay at ${s.relay}. Is it running? (see Settings → How to set up)`); }
+      if (r.status !== 429 || attempt >= 4) break;
+      const ra = +r.headers.get("retry-after");
+      const wait = ra > 0 ? Math.min(ra * 1000, 15000) : 1000 * 2 ** attempt;
+      lastAt = Date.now() + wait;   // hold the whole queue, not just this request
+      await new Promise(res => setTimeout(res, wait));
+    }
     const txt = await r.text(); let j = null; try { j = JSON.parse(txt); } catch {}
+    if (r.status === 429) throw new Error("Kalshi 429: too many requests (still limited after retrying). Wait a minute and try again.");
     if (!r.ok) throw new Error(`Kalshi ${r.status}: ${j?.error?.message || j?.message || j?.error || txt.slice(0, 200) || r.statusText}`);
     return j;
   }
