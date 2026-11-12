@@ -722,6 +722,7 @@
     else if (state.view === "games") window.PropGames.render($("#gamesView"), DATA, api);
     else if (!state.view || state.view === "props") renderAll();
   }
+  window.PropView = { redraw: redrawView };
   if (window.PropOdds) {
     window.PropOdds.onChange = () => { const n = window.PropOdds.apply(DATA); redrawView(); return n; };
     const autoOdds = () => { if (window.PropOdds.due()) window.PropOdds.refresh(DATA).then(() => window.PropOdds.onChange()).catch(() => {}); };
