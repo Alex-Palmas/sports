@@ -197,7 +197,7 @@ export function parseDK(o) {
 }
 
 // Kalshi team codes that differ from ESPN's abbreviations
-const KALSHI_ALIAS = { UTAH: ["UTA"], NY: ["NYK"], GS: ["GSW"], NO: ["NOP", "NOR"], SA: ["SAS"], WSH: ["WAS"], PHX: ["PHO"], BKN: ["BRK", "BKN"], CHA: ["CHO"],
+export const KALSHI_ALIAS = { UTAH: ["UTA"], NY: ["NYK"], GS: ["GSW"], NO: ["NOP", "NOR"], SA: ["SAS"], WSH: ["WAS"], PHX: ["PHO"], BKN: ["BRK", "BKN"], CHA: ["CHO"],
   NJ: ["NJD"], LA: ["LAK", "LAR", "LA"], SJ: ["SJS"], TB: ["TBL", "TB"], JAX: ["JAC"], LAR: ["LA"], VGK: ["VEG", "VGS", "VGK"], CBJ: ["CLB", "CBJ"], MTL: ["MON", "MTL"], NSH: ["NAS", "NSH"] };
 const kCodes = abbr => [abbr, ...(KALSHI_ALIAS[abbr] || [])];
 const MON = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };

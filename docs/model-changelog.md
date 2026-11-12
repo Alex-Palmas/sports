@@ -36,3 +36,12 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
   - The Bet button re-prices the estimate at the live quote before ordering.
   - Bets tab: the record now shows how many wins your prices implied.
 - Result on the current slate: 0 props with positive EV (previously 135 above 2%). The Edge Board says so plainly instead of listing model errors as edges.
+
+## 2026-11-12 (owner: "does it account for the opponent's defense and matchups?")
+
+- Tested on 18,523 settled Kalshi NBA prop markets for the site's players (Oct 20 – Nov 9, 20 days), each matched to its game. Each variable was added to the fitted Kalshi layer and validated leave-one-day-out:
+  - **Team stats** (from ESPN results before that date, point-in-time): the opponent's points allowed, and pace (the two teams' average total points).
+  - **Market expectations** (`scripts/game-context.mjs`): Kalshi's pre-game game total and spread, interpolated to 50% from the ladders in the last hour before tip, giving each team's implied points and blowout size.
+  - **Versions:** each variable was tried on its own and also limited to points-type props, rebounds or assists.
+- **Result:** none improved on the price. Every one made out-of-sample log loss slightly worse (+0.00001 to +0.00025), so nothing was added. The prop prices already include the opponent's defense, pace, and the game total and spread.
+- **Not tested:** individual defender matchups (who guards whom). NBA.com's matchup tracking can't be reached from these servers.
