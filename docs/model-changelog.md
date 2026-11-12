@@ -69,3 +69,26 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
   | NBA | 160 | 22 | 45.6% | Unders won in both halves (+3.1% / +4.9%), and NO on long-shot overs (+1.2% / +2.0%), but on only 76–84 games per half. Not proven; to be re-checked as games accumulate. |
 - **Kalshi has no college player props;** college markets are game lines, halves/quarters and team stats.
 - **Nothing added** to the Edge Board for game lines.
+
+## 2026-11-12 (owner: "look into tennis too, do all the backtesting")
+
+- **Data:** `scripts/tennis-lines.mjs` collected 10,909 settled Kalshi tennis events (Oct 1 – Nov 12):
+  - match winners: ATP, WTA, ATP/WTA Challenger, ITF men/women;
+  - ATP/WTA total games.
+- **Method:**
+  - Kalshi's tennis start times are placeholders, so the pre-match price is the hourly candle ending 4 hours before the market closed (the match end).
+  - Results come from Kalshi's settlement.
+  - Rules are priced at the real ask, after the fee, and split at Oct 22.
+- **Results.** A rule had to win in both halves to count; only the ATP underdog rule did.
+
+  | Market | Matches | Result |
+  |---|---|---|
+  | ATP | 463 | Favorites won less often than priced at every level (e.g. 48% at 50–60¢, 87% at 90–100¢). Underdogs +3.3% / +5.1%; slight underdogs (40–50¢) +6.6% / +16.9%. About 1 standard error, so not proven. Watch only. |
+  | WTA | 423 | Mixed; no rule positive in both halves. |
+  | ATP Challenger | 1,572 | Close to fair. Favorites −6.4% / −6.3%, underdogs −1.7% / −1.8%. |
+  | WTA Challenger | 427 | No rule positive in both halves. |
+  | ITF men | 3,446 | Well calibrated. Long shots overpriced (underdogs −12% / −17%). Favorites close but still negative after fees (−3.9% / −1.7%). |
+  | ITF women | 3,846 | Same as ITF men. Favorites −3.4% / −2.7%, heavy favorites −2.3% / −1.1%, underdogs −14%. |
+  | ATP total games | 396 | Unders −15.6% / −6.4%, overs +5.4% / −4.0%. Nothing. |
+  | WTA total games | 336 | Unders −6.3% / −8.7%, overs −4.1% / −1.8%. Nothing. |
+- **Conclusion:** no tennis rule that's proven profitable. The ATP-underdog lean should be re-checked as matches accumulate. Nothing added to the site.
