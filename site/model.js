@@ -76,13 +76,20 @@
    *   logit P(yes) = b0 + bMid·logit(market mid) + Σ coefficient·edgeFeatures()
    * Fitted out of sample (leave-one-day-out); variables that didn't improve on the market were dropped.
    */
-  const EDGE_FIT = {
-    // 28,431 settled Kalshi NBA prop markets, Oct 20 – Nov 10 2026. The market price was already
-    // well calibrated; the only lasting bias is that overs on combo stats (PRA) run ~2–3 points rich.
-    // Our projection, line movement, minutes trend, home/away, rest, matchup and the line's distance
-    // from the projection all failed to improve on the price out of sample, so none are used.
-    nba: { n: 28431, days: 21, through: "2026-11-10", b0: 0.0533, bMid: 1.0159, statCombo: -0.2115, statPts: -0.0684 },
+  const EDGE_FITS = {
+    // Fitted on the players the site covers (each team's rotation plus anyone with a priced prop):
+    // 18,623 settled Kalshi NBA prop markets, Oct 20 – Nov 9 2026. For these players overs on points
+    // and PRA ran rich; forward tests (fit on earlier days, bet NO at EV ≥ 2% on later days) returned
+    // +9.7% / +8.8% / +7.3% after fees, winning 27 of 31 test days. Early-season sample: the daily
+    // tuning re-checks it, and Settings → Edge model switches back to the conservative fit.
+    players: { nba: { n: 18623, days: 20, through: "2026-11-09", b0: -0.1252, bMid: 0.937, statCombo: -0.4304, statPts: -0.3116 } },
+    // Fitted on every Kalshi NBA prop market (bench players included): 28,431 markets, Oct 20 – Nov 10.
+    // Close to the plain market price; almost nothing beats it after the spread and fee.
+    market: { nba: { n: 28431, days: 21, through: "2026-11-10", b0: 0.0533, bMid: 1.0159, statCombo: -0.2115, statPts: -0.0684 } },
   };
+  /** Which fit is on: Settings → Edge model ("players", the default, or "market"). */
+  const edgeMode = () => { try { const v = root.localStorage?.getItem((root.PROPLAB_NS || "proplab:") + "edgeMode"); return v && EDGE_FITS[JSON.parse(v)] ? JSON.parse(v) : "players"; } catch { return "players"; } };
+  const edgeFit = league => EDGE_FITS[edgeMode()][league] || null;
 
   // negative binomial P(X ≤ k) with mean mu and variance v (> mu); Poisson when v ≤ mu
   function countCdf(k, mu, v) {
@@ -216,7 +223,7 @@
       const fitted = edgeOver(q, { p, stat, proj, league, modelOver: pr.over });
       // Kalshi quote with a fitted layer: use it. Elsewhere blend with the market (NBA: the market alone,
       // since on real Kalshi results our projection added nothing the price didn't already have).
-      const w = EDGE_FIT[league] ? 1 : C.marketWeight;
+      const w = edgeFit(league) ? 1 : C.marketWeight;
       const prob = fitted != null ? (side === "over" ? fitted : 1 - fitted) : mk == null ? mine : (1 - w) * mine + w * mk;
       const e = ev(prob, price);
       if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null, ya: q.ya ?? null, na: q.na ?? null };
@@ -387,7 +394,7 @@
   }
   /** Fitted P(over) at a Kalshi quote's strike, or null (no fit for this league, not a Kalshi quote). */
   function edgeOver(q, { p, stat, proj, league, modelOver: mo }) {
-    const fit = EDGE_FIT[league], k = q?.b === "Kalshi" ? kalshiMid(q) : null;
+    const fit = edgeFit(league), k = q?.b === "Kalshi" ? kalshiMid(q) : null;
     if (!fit || !k || !(k.mid > 0.02 && k.mid < 0.98)) return null;
     const f = edgeFeatures({ ...k, model: mo, stat, line: q.l, proj, p });
     let x = fit.b0 + fit.bMid * logit(clamp(k.mid, 0.01, 0.99));
@@ -418,6 +425,6 @@
       farOver: clamp(z, 0, 3), farUnder: clamp(-z, 0, 3),
     };
   }
-  const api = { EDGE_FIT, edgeOver, kalshiMid, edgeFeatures, kalshiLeg, seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
+  const api = { get EDGE_FIT() { return EDGE_FITS[edgeMode()]; }, EDGE_FITS, edgeMode, edgeFit, edgeOver, kalshiMid, edgeFeatures, kalshiLeg, seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropModel = api;
 })(typeof window !== "undefined" ? window : globalThis);

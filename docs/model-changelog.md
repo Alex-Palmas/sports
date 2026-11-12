@@ -45,3 +45,12 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
   - **Versions:** each variable was tried on its own and also limited to points-type props, rebounds or assists.
 - **Result:** none improved on the price. Every one made out-of-sample log loss slightly worse (+0.00001 to +0.00025), so nothing was added. The prop prices already include the opponent's defense, pace, and the game total and spread.
 - **Not tested:** individual defender matchups (who guards whom). NBA.com's matchup tracking can't be reached from these servers.
+
+## 2026-11-12 (owner: "sure, let's try it")
+
+- **Default changed:** NBA Kalshi props now use the fit on the site's own players (`EDGE_FITS.players`: 18,623 markets, Oct 20 – Nov 9). Its terms are b0 −0.125, bMid 0.937, PRA/combos −0.430 and points −0.312.
+  - **Why:** for these players, overs on points and PRA ran well above their hit rates in both halves of the season. For example, PRA priced at 55–75% hit 47% (first half) and 50% (second half) against an average price of 64%; points priced at 35–55% hit 37% and 35% against 45%. Rebounds stayed close to fair.
+  - **Forward tests** (fit on earlier days, bet NO at EV ≥ 2% on later days): +9.7%, +8.8% and +7.3% after fees, with 12/14, 9/10 and 6/7 winning days.
+- **Switching back:** Settings → Edge model → **Conservative** returns to the all-markets fit (`EDGE_FITS.market`), which follows Kalshi's price.
+- **On the current slate:** 291 NBA props with EV ≥ 2%, all NO (points 117, PRA 99, 3-pointers 29, rebounds 23, assists 21).
+- **Caveat:** this is early-season data. The daily tuning re-checks the bias on new results and should set the default back to Conservative if it stops holding in a forward test.
