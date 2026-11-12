@@ -145,3 +145,12 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
   - best at a cost of 20–30¢ (+53%), weakest at 30–40¢ (+20%).
 - **Decision:** the default stays at 25%; it is the most robust cutoff by both methods. 15% earns less per bet but more in total (about 120 vs 71 units over 17 days at a fixed size) and is positive in both methods and halves, so it's a reasonable choice for more volume. Auto bet already bets the highest-EV picks first.
 - **Caveat:** 22 days, and the bracket edges were chosen after looking. Daily tuning re-runs this study.
+
+## 2026-11-12 (owner: "test NFL player props the NBA way")
+
+- **Data:** `scripts/kalshi-history.mjs --league nfl` collected 33,026 settled Kalshi NFL player-prop markets with pre-game quotes, weeks 1–9: passing, rushing and receiving yards, receptions, passing TDs. Anytime-TD markets use a different format and aren't collected yet.
+- **Test:** `scripts/nfl-props-study.mjs` ran the same test as for the NBA, scored leave-one-week-out and strictly forward.
+- **Calibration** (21,446 markets for the site's 204 NFL players): close to fair everywhere. If anything QB overs ran slightly cheap rather than rich (passing yards priced 30–50¢ hit 46% vs 39%). There is nothing like the NBA's overpriced points/PRA overs.
+- **Fitted layer:** the leave-one-week-out log loss (0.48215) was worse than the plain price (0.48198), so the price is better.
+- **Board rule:** few picks, and inconsistent between the two halves of the season. EV ≥ 25% strictly forward: 45 bets at −17%. EV ≥ 2%: +3.6% / +4.5% overall, but −5.9% in the second half by leave-one-week-out.
+- **Conclusion:** no NFL player-prop edge. Nothing changed on the site; NFL picks keep the 90% market / 10% projection blend.
