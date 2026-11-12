@@ -182,6 +182,16 @@
     try { const cred = await getCred(); const k = (await call("GET", "/api_keys")).api_keys?.find(x => x.api_key_id === cred?.keyId); if (k) key = { scopes: k.scopes || [], subaccount: k.subaccount ?? null }; } catch {}
     return { total, shards, subaccountKey: !j.balance_breakdown || key?.subaccount != null, key };
   }
+  /** Money in open (unsettled) positions, summed from Kalshi's positions (all shards). */
+  async function openExposure() {
+    let cursor = "", total = 0, n = 0;
+    for (let page = 0; page < 20; page++) {
+      const j = await call("GET", `/portfolio/positions?count_filter=position&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      for (const m of j.market_positions || []) { const x = Math.abs(+(m.market_exposure_dollars ?? 0)) || 0; total += x; if (x) n++; }
+      cursor = j.cursor; if (!cursor) break;
+    }
+    return { total: +total.toFixed(2), positions: n };
+  }
   const usdS = x => `$${(+x).toFixed(2)}`;
   const describeBalances = info => info.shards.length > 1 ? info.shards.map(x => `${usdS(x.balance)} on shard ${x.index}`).join(", ") : usdS(info.total);
   /** Move money between event-contract shards (needs the key's write::transfer scope). */
@@ -279,10 +289,10 @@
       </select></label>
       <p class="pl-sub">Takes effect right away on the Edge Board and for Auto bet. The site-players model is fitted on about 3 weeks of early-season games; switch back to Conservative if it stops working.</p>`; })() : ""}
       <h3 class="set-h">Auto bet bot</h3>
-      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. Both percentages use your Kalshi balance at the start of the day; each bet is also capped by "Max per order" and is at least one contract. One bet per pick. It only runs while PropLab is open.</p>
+      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. It checks your Kalshi cash and open bets every few minutes: your account = cash + money in open bets. Each bet is a share of the account (capped by "Max per order", at least one contract), and the bot keeps the money in open bets under its limit, so when bets settle the freed cash goes into new picks. One bet per pick. It only runs while PropLab is open.</p>
       <div class="tf-grid">
-        <label>Each bet (% of balance) <input id="setBotBetPct" type="number" min="0.1" max="100" step="0.1" value="${esc(s.botBetPct ?? 1)}"/></label>
-        <label>Total per day (% of balance) <input id="setBotPct" type="number" min="1" max="100" step="1" value="${esc(s.botPct ?? 50)}"/></label>
+        <label>Each bet (% of account) <input id="setBotBetPct" type="number" min="0.1" max="100" step="0.1" value="${esc(s.botBetPct ?? 1)}"/></label>
+        <label>Max in open bets (% of account) <input id="setBotPct" type="number" min="1" max="100" step="1" value="${esc(s.botPct ?? 50)}"/></label>
         <div class="pl-sub" id="setBotNow">${root.PropEdge?.botSummary?.() || ""}</div>
       </div>
       <div class="pl-sub" id="setMsg" role="status"></div>
@@ -456,7 +466,7 @@
     return { filled, each, cost, buy };
   }
 
-  const api = { markets, liveSource, balanceInfo, transfer, diagnoseInsufficient, withFundsFix, quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
+  const api = { openExposure, markets, liveSource, balanceInfo, transfer, diagnoseInsufficient, withFundsFix, quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
     ready: async () => settings().enabled && !!(await getCred()) };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropKalshi = api;
 })(typeof window !== "undefined" ? window : globalThis);
