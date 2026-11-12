@@ -54,3 +54,18 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
 - **Switching back:** Settings → Edge model → **Conservative** returns to the all-markets fit (`EDGE_FITS.market`), which follows Kalshi's price.
 - **On the current slate:** 291 NBA props with EV ≥ 2%, all NO (points 117, PRA 99, 3-pointers 29, rebounds 23, assists 21).
 - **Caveat:** this is early-season data. The daily tuning re-checks the bias on new results and should set the default back to Conservative if it stops holding in a forward test.
+
+## 2026-11-12 (owner: "are game lines profitable? look into college basketball and football")
+
+- **New tools:**
+  - `scripts/college-lines.mjs` collects settled Kalshi total and spread ladders, with each strike's YES bid/ask in the hour before the start, and matches each game to ESPN's final score. It covers ncaaf, ncaamb, nba, nfl and nhl.
+  - `scripts/lines-backtest.mjs` tests simple rules at the real prices after Kalshi's fee, separately for the earlier and later half of the dates.
+- **Results.** A rule needed to win in both halves to count; none did except as noted.
+
+  | League | Games | Days | Overs at the main total line | Rules |
+  |---|---|---|---|---|
+  | College football | 1,013 | 43 | 50.2% (priced 50.1%) | Every rule lost after fees in at least one half: unders/overs, favorites/underdogs, big favorites/underdogs (10+), long-shot ladder strikes. Best: underdogs at −0.4% / −4.3%. |
+  | College basketball | 448 | 10 | 48.1% (priced 50.2%) | Every rule lost in at least one half. Best: unders at +2.5% / −5.2%. |
+  | NBA | 160 | 22 | 45.6% | Unders won in both halves (+3.1% / +4.9%), and NO on long-shot overs (+1.2% / +2.0%), but on only 76–84 games per half. Not proven; to be re-checked as games accumulate. |
+- **Kalshi has no college player props;** college markets are game lines, halves/quarters and team stats.
+- **Nothing added** to the Edge Board for game lines.
