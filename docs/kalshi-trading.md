@@ -54,9 +54,14 @@ Tick **Auto bet** on the Edge Board to let PropLab place bets for you.
 
 - **What it bets on:** every Kalshi pick the board is showing with your current filters, as long as it has positive EV after fees and its game hasn't started. When a new pick appears in the minute-by-minute refresh, the bot bets on that too. It places one bet per pick.
 - **Settings → Auto bet bot:**
-  - **Each bet (% of balance)**, default 1%. This is the size of every bet, at least one contract and never more than "Max per order".
-  - **Total per day (% of balance)**, default 50%. The bot stops for the day once its spending reaches this. Picks that appear after that wait for the next day, or for a higher limit.
-- **Which balance:** both percentages use your Kalshi balance at the bot's first run of the day. Changing a setting takes effect at the next check (within a minute).
+  - **Each bet (% of account)**, default 1%.
+  - **Max in open bets (% of account)**, default 50%.
+- **How the money works:**
+  - Every 5 minutes the bot reads your Kalshi cash and open positions; your account is cash plus money in open bets. It also re-checks right away whenever it would have to skip a pick for lack of room.
+  - Each bet is its % of the account, at least one contract and never more than "Max per order".
+  - New bets are placed only while the money in open bets stays under the limit and there's cash for them.
+  - When bets settle, their money is free again (including winnings) and goes into the next picks on the board.
+  - The open-bets total includes bets you placed yourself.
 - **Orders:** orders are immediate-or-cancel at the live ask. If the price moved, the bot buys only if the edge still holds at the new price.
 - **Stopping:** the bot stops itself on any error other than a skipped pick, such as a rejected key or insufficient funds. The reason shows in the bot box on the Edge Board.
 - **When it runs:** only while PropLab is open (the Mac app or a browser tab). It keeps running if you switch tabs inside PropLab, and it resumes after a reload.
