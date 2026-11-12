@@ -226,7 +226,7 @@
       const w = edgeFit(league) ? 1 : C.marketWeight;
       const prob = fitted != null ? (side === "over" ? fitted : 1 - fitted) : mk == null ? mine : (1 - w) * mine + w * mk;
       const e = ev(prob, price);
-      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null, ya: q.ya ?? null, na: q.na ?? null };
+      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null, ya: q.ya ?? null, na: q.na ?? null, fitted: fitted != null };
     }
     return { proj, line, probs: base, best, confidence: confidence(p, stat, league, proj, best), fairOver: base ? toAmerican(base.over) : null, fairUnder: base ? toAmerican(base.under) : null };
   }
@@ -240,8 +240,24 @@
    * boosts, and on the market side (when `best` is given) no price, one-sided or thin markets,
    * long shots, and big disagreement with the market (usually news the model doesn't have).
    */
+  /**
+   * Confidence for picks priced by the fitted Kalshi layer (NBA): graded on what predicted results there.
+   * Backtest (2,490 board picks over 20 days, each day scored by a fit without that day): EV over 25%
+   * returned +31% (High), +19% (Medium); EV under 10% lost 14–22%; NO bets costing over 60¢ (YES under
+   * 40¢) lost ~50%. The old projection-based penalties didn't separate winners from losers here.
+   */
+  function fittedConfidence(best) {
+    const why = [], hit = (pts, txt, code) => { if (pts) why.push({ pts, txt, code }); };
+    const yesMid = best.ya != null && best.na != null ? (best.ya + 1 - best.na) / 2 : null;
+    hit(best.ev < 0.1 ? 55 : best.ev < 0.25 ? 30 : 0, best.ev < 0.1 ? "Small edge (under 10%): these lost money in testing" : "Medium edge (10–25%): about break-even in testing", "edge");
+    hit(best.side === "under" && yesMid != null && yesMid < 0.4 ? 40 : 0, "Expensive NO (YES under 40¢): these lost heavily in testing", "costly");
+    hit(best.vol != null && best.vol < 100 ? 10 : 0, `Thin market (${best.vol} contracts traded)`, "thin");
+    const score = clamp(100 - why.reduce((a, x) => a + x.pts, 0), 0, 100);
+    return { score, grade: score >= 75 ? "High" : score >= 50 ? "Medium" : "Low", why: why.sort((a, b) => b.pts - a.pts), basis: "edge" };
+  }
   function confidence(p, stat, league, proj, best) {
     if (!proj) return null;
+    if (best?.fitted) return fittedConfidence(best);
     const why = [], hit = (pts, txt, code) => { if (pts) why.push({ pts, txt, code }); };
     const logs = p.logs || [], season = logs[0]?.season, cur = logs.filter(l => l.season === season).length;
     hit(logs.length < 10 ? 20 : logs.length < 20 ? 5 : 0, `Only ${logs.length} games of history`, "hist");
@@ -425,6 +441,6 @@
       farOver: clamp(z, 0, 3), farUnder: clamp(-z, 0, 3),
     };
   }
-  const api = { get EDGE_FIT() { return EDGE_FITS[edgeMode()]; }, EDGE_FITS, edgeMode, edgeFit, edgeOver, kalshiMid, edgeFeatures, kalshiLeg, seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
+  const api = { fittedConfidence, get EDGE_FIT() { return EDGE_FITS[edgeMode()]; }, EDGE_FITS, edgeMode, edgeFit, edgeOver, kalshiMid, edgeFeatures, kalshiLeg, seasonForm, gameModel, gameBets, GAME, confidence, PARAMS, DEFAULT, cfg, countCdf, modelOver, logit, sigmoid, marketProb, mean, sd, impl, dec, toAmerican, ev, kelly, ncdf, poissonCdf, probOver, withRest, restSplits, ewMean, project, probabilities, bestBet, correlation, settle, clv };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropModel = api;
 })(typeof window !== "undefined" ? window : globalThis);

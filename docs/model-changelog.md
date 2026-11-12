@@ -92,3 +92,21 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
   | ATP total games | 396 | Unders −15.6% / −6.4%, overs +5.4% / −4.0%. Nothing. |
   | WTA total games | 336 | Unders −6.3% / −8.7%, overs −4.1% / −1.8%. Nothing. |
 - **Conclusion:** no tennis rule that's proven profitable. The ATP-underdog lean should be re-checked as matches accumulate. Nothing added to the site.
+
+## 2026-11-12 (owner: "compare big-disagreement picks and confidence levels; do the suggested things")
+
+- **Backtest of the board's own rule.** One pick per prop, the best EV at the board's price limits; 2,490 picks over 20 days. Each day was scored by a fit that excluded that day.
+  - **By EV:** all picks −7.7%. EV 2–10% −19.9%, EV 10–25% −1.7%, EV over 25% +30.8% (first half +63%, second half +21%).
+  - **By price:** NO on heavy favorites (YES ≥ 70¢) +22.9%; NO costing over 60¢ (YES under 40¢) −49.5%.
+  - **By projection:** picks where our projection strongly disagrees +4.6%; where it agrees −34.4%.
+  - **By confidence grade:** High −8.0%, Medium −7.1%, Low −6.0%, so the grade didn't separate results. Within every grade, EV over 25% was positive and EV under 10% was negative.
+- **Changes:**
+  - The Edge Board's **minimum EV now defaults to 25%** ("25%+ (recommended)"). Saved boards move to 25% once and can still be changed. Auto bet follows the board's filters.
+  - **NBA Kalshi picks priced by the fitted layer** get confidence from edge size and price level (`fittedConfidence`):
+    - EV under 10% → Low;
+    - EV 10–25% → Medium;
+    - NO costing over 60¢ → −40 points;
+    - thin market → −10 points.
+  - The "Big disagreement: check news" chip is no longer shown on those picks; it stays on other picks.
+- **On the current slate:** 80 NBA picks at EV ≥ 25%, all graded High.
+- **Caveat:** 20 days of data, and the 10% / 25% cutoffs were chosen after seeing the results.
