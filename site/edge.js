@@ -68,7 +68,7 @@
         if (opts.q && !`${p.name} ${p.team} ${label}`.toLowerCase().includes(opts.q.toLowerCase())) continue;
         const statOk = opts.stat === "all" || opts.stat === stat;
         if (r.best) { if (r.best.ev < opts.minEv) continue; }
-        else if (opts.marketOnly) continue;
+        else if (opts.marketOnly || opts.minEv > -1) continue;   // no price means no EV: only listed with "Any" and the box unticked
         const g = r.confidence?.grade || "Low";
         if (opts.grades.includes(g)) statCounts[stat] = (statCounts[stat] || 0) + 1;   // per-stat counts under the grade filter
         if (!statOk) continue;
