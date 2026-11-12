@@ -14,8 +14,13 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 
 const API = "https://api.elections.kalshi.com/trade-api/v2";
-const ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
-export const SERIES = { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3", KXNBAPR: "pr", KXNBAPA: "pa", KXNBARA: "ra", KXNBAPRA: "pra", KXNBASTL: "stl", KXNBABLK: "blk" };
+const LEAGUES = {
+  nba: { espn: "basketball/nba", series: { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3", KXNBAPR: "pr", KXNBAPA: "pa", KXNBARA: "ra", KXNBAPRA: "pra", KXNBASTL: "stl", KXNBABLK: "blk" } },
+  nfl: { espn: "football/nfl", series: { KXNFLPASSYDS: "pass_yds", KXNFLRSHYDS: "rush_yds", KXNFLRECYDS: "rec_yds", KXNFLREC: "rec", KXNFLPASSTDS: "pass_td", KXNFLANYTD: "td" } },
+};
+const LEAGUE = (() => { const i = process.argv.indexOf("--league"); return i > 0 ? process.argv[i + 1] : "nba"; })();
+const ESPN = `https://site.api.espn.com/apis/site/v2/sports/${LEAGUES[LEAGUE].espn}/scoreboard`;
+export const SERIES = LEAGUES[LEAGUE].series;
 const MON = { JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06", JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12" };
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -35,7 +40,8 @@ async function get(url) {
 /** "KXNBAPTS-26NOV10MILNYK" → "2026-11-10" (the game's US date). */
 export const eventDate = t => { const m = /-(\d\d)([A-Z]{3})(\d\d)/.exec(t); return m ? `20${m[1]}-${MON[m[2]]}-${m[3]}` : null; };
 /** "Ryan Rollins: 25+" → { name: "Ryan Rollins", n: 25 } */
-export const parseSub = s => { const m = /^(.*?):\s*(\d+)\+/.exec(s || ""); return m ? { name: m[1].trim(), n: +m[2] } : null; };
+/** "Ryan Rollins: 25+" → { name, n: 25 }; anytime-TD style "Josh Allen" (no number) → { name, n: 1 } */
+export const parseSub = s => { const m = /^(.*?):\s*(\d+)\+/.exec(s || ""); if (m) return { name: m[1].trim(), n: +m[2] }; const t = String(s || "").trim(); return t && !/[:+]/.test(t) && t.split(" ").length <= 4 ? { name: t, n: 1 } : null; };
 const num = x => x == null || x === "" ? null : +x;
 
 async function startTimes(date, cache) {
@@ -56,7 +62,7 @@ async function main() {
         const date = eventDate(e.event_ticker); if (!date) continue;
         if (date < since) { stop = true; continue; }
         if (db.events[e.event_ticker]?.v === 2) continue;
-        const ms = (e.markets || []).filter(m => m.result === "yes" || m.result === "no").map(m => ({ tk: m.ticker, ...parseSub(m.yes_sub_title), strike: m.floor_strike, y: m.result === "yes" ? 1 : 0, value: num(m.expiration_value), tv: num(m.volume_fp) })).filter(m => m.name);
+        const ms = (e.markets || []).filter(m => m.result === "yes" || m.result === "no").map(m => ({ tk: m.ticker, ...parseSub(m.yes_sub_title), strike: m.floor_strike ?? (parseSub(m.yes_sub_title)?.n ?? 1) - 0.5, y: m.result === "yes" ? 1 : 0, value: num(m.expiration_value), tv: num(m.volume_fp) })).filter(m => m.name);
         if (!ms.length) continue;
         // scheduled start: ESPN game on that date whose teams appear in the event ticker's suffix
         const suffix = e.event_ticker.split("-")[1].slice(7);
