@@ -110,3 +110,38 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
   - The "Big disagreement: check news" chip is no longer shown on those picks; it stays on other picks.
 - **On the current slate:** 80 NBA picks at EV ≥ 25%, all graded High.
 - **Caveat:** 20 days of data, and the 10% / 25% cutoffs were chosen after seeing the results.
+
+## 2026-11-12 (owner: "do a more thorough study for the EV brackets")
+
+- **`scripts/ev-study.mjs`:** 21,245 settled Kalshi NBA prop markets for the site's players, Oct 20 – Nov 11 (22 days). It replays the board's rule: one pick per prop, the best EV per $ after fee, cost 20–80¢.
+  - **Scoring:** two ways. Leave-one-day-out (LODO), and strictly forward, where each day is fit only on earlier days and the first 5 days are skipped.
+  - **Ranges:** 90% ranges come from resampling whole days.
+- **ROI by EV bracket (LODO / forward):**
+
+  | EV bracket | LODO | Forward |
+  |---|---|---|
+  | 2–5% | −22% | −27% |
+  | 5–10% | −34% | −24% |
+  | 10–15% | −12% | −6% |
+  | 15–20% | +10% | +14% |
+  | 20–25% | +5% | +3% |
+  | 25–30% | +31% | +20% |
+  | 30–40% | +44% | +22% |
+  | 40%+ | too few to read | too few to read |
+
+  For picks under 10% EV the model was badly overconfident: it expected a 64–70% win rate where 43–45% actually won. At 25%+ it was well calibrated (45% won vs 43–48% expected).
+- **Results by minimum-EV cutoff:**
+
+  | Cutoff | Method | Bets | ROI | 90% range | Halves | Days up |
+  |---|---|---|---|---|---|---|
+  | ≥15% | LODO | 1,151 | +13.0% | +5% … +23% | +12% / +13% | — |
+  | ≥15% | Forward | 880 | +13.7% | +5% … +25% | +15% / +14% | — |
+  | ≥25% | LODO | 247 | +35.2% | +22% … +50% | +45% / +33% | 17 of 20 |
+  | ≥25% | Forward | 318 | +22.3% | +8% … +41% | +26% / +22% | 14 of 16 |
+
+  Last 7 days at ≥25%: +37% (LODO) and +36% (forward). At ≥10% the forward result was +7.4% but the LODO first half was −1.6%. At 2% and 5% it lost (−6% / −3% LODO).
+- **Picks at EV ≥ 25%:**
+  - all NO bets (points 49, PRA 198);
+  - best at a cost of 20–30¢ (+53%), weakest at 30–40¢ (+20%).
+- **Decision:** the default stays at 25%; it is the most robust cutoff by both methods. 15% earns less per bet but more in total (about 120 vs 71 units over 17 days at a fixed size) and is positive in both methods and halves, so it's a reasonable choice for more volume. Auto bet already bets the highest-EV picks first.
+- **Caveat:** 22 days, and the bracket edges were chosen after looking. Daily tuning re-runs this study.
