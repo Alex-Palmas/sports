@@ -156,3 +156,12 @@ test("Kalshi leg: over = buy YES on the N+ contract, under = buy NO", () => {
   const legs = M.gameBets(g, "nba").bets.map(b => [b.label, b.leg.action, b.leg.contract]);
   assert.deepEqual(legs.sort(), [["MIL +15.5", "NO", "New York wins by over 15.5 points"], ["NY -15.5", "YES", "New York wins by over 15.5 points"]]);
 });
+
+test("fitted (NBA Kalshi) picks: confidence comes from edge size and price level", () => {
+  const big = M.fittedConfidence({ fitted: true, ev: 0.3, side: "under", ya: 0.76, na: 0.25, vol: 500 });
+  assert.equal(big.grade, "High");
+  assert.equal(M.fittedConfidence({ fitted: true, ev: 0.15, side: "under", ya: 0.6, na: 0.42, vol: 500 }).grade, "Medium");
+  assert.equal(M.fittedConfidence({ fitted: true, ev: 0.05, side: "under", ya: 0.6, na: 0.42, vol: 500 }).grade, "Low");
+  const costly = M.fittedConfidence({ fitted: true, ev: 0.3, side: "under", ya: 0.3, na: 0.72, vol: 500 });
+  assert.equal(costly.grade, "Medium"); assert.ok(costly.why.some(w => w.code === "costly"));
+});

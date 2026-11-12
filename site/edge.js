@@ -13,7 +13,7 @@
   }
   const evTxt = e => (e >= 0 ? "+" : "") + (e * 100).toFixed(1) + "%";
   const fitN = () => (window.PropModel?.EDGE_FIT?.nba?.n || 28431).toLocaleString();
-  let opts = { league: "all", minEv: 0.02, grades: ["High", "Medium", "Low"], sort: "ev", marketOnly: true, q: "", show: 60, day: "all", stat: "all" };
+  let opts = { league: "all", minEv: 0.25, grades: ["High", "Medium", "Low"], sort: "ev", marketOnly: true, q: "", show: 60, day: "all", stat: "all" };
   // local calendar day of a game, and a friendly label for it
   const dayKey = iso => { if (!iso) return ""; const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const dayLabel = k => { const t = dayKey(new Date().toISOString()), tm = dayKey(new Date(Date.now() + 86400e3).toISOString());
@@ -27,6 +27,8 @@
   // older saved setting (a minimum grade) → the grade chips
   if (opts.minConf) { opts.grades = { high: ["High"], medium: ["High", "Medium"] }[opts.minConf] || opts.grades; delete opts.minConf; }
   if (!Array.isArray(opts.grades) || !opts.grades.length) opts.grades = ["High", "Medium", "Low"];
+  // 2026-11-12: on real Kalshi results only big edges (≥25%) made money, so boards move to 25% once (still changeable)
+  if (!opts.ev25) { if (opts.minEv < 0.25) opts.minEv = 0.25; opts.ev25 = 1; }
   const save = () => { try { localStorage.setItem((window.PROPLAB_NS || "proplab:") + "edge", JSON.stringify({ ...opts, show: 60 })); } catch {} };
 
   /** Chips explaining what drives a projection. */
@@ -389,7 +391,7 @@
         ${statBar(DATA)}</div>
       <div class="edge-ctrls card">
         <label>League <select id="edgeLeague"><option value="all">All</option>${leagues.map(([k, s]) => `<option value="${k}"${opts.league === k ? " selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>
-        <label>Minimum EV <select id="edgeMin">${[[-1, "Any"], [0, "0%+"], [0.02, "2%+"], [0.05, "5%+"], [0.1, "10%+"]].map(([v, l]) => `<option value="${v}"${+opts.minEv === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Minimum EV <select id="edgeMin">${[[-1, "Any"], [0, "0%+"], [0.02, "2%+"], [0.05, "5%+"], [0.1, "10%+"], [0.25, "25%+ (recommended)"]].map(([v, l]) => `<option value="${v}"${+opts.minEv === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
         <label>Day <select id="edgeDay"><option value="all">All days</option>${days.map(d => `<option value="${d}"${opts.day === d ? " selected" : ""}>${esc(dayLabel(d))}</option>`).join("")}</select></label>
         <label>Sort <select id="edgeSort">${Object.entries(SORTS).map(([v, l]) => `<option value="${v}"${opts.sort === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="edge-search">Search <input id="edgeQ" type="search" placeholder="Player, team or stat" value="${esc(opts.q)}" autocomplete="off"/></label>
@@ -399,9 +401,9 @@
       <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${liveHidden.size ? ` · ${Math.ceil(liveHidden.size / 2) || 1} game${liveHidden.size > 2 ? "s" : ""} in progress hidden (no in-game bets)` : ""}${live.hardNote && Date.now() - live.hardNote.at < 90e3 ? ` · ${esc(live.hardNote.text)}` : ""}${live.lastHard ? ` · next hard refresh in ${Math.max(1, Math.ceil((live.lastHard + HARD_MS - Date.now()) / 60e3))} min` : ""}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button><button type="button" class="chip sm" id="edgeHard" title="Download the newest player data and Kalshi markets, re-price everything, and search the whole board again">⟳ Hard refresh</button>
         ${window.PropKalshi ? `<label class="check bot-toggle"><input type="checkbox" id="edgeBot"${botState().on ? " checked" : ""}/> Auto bet</label>` : ""}</div>
       ${window.PropKalshi && (botState().on || botState().stopped) ? `<div class="card bot-box${botState().on ? " on" : ""}"><div>${botSummary()}</div>${botState().on ? `<button type="button" class="chip sm" id="botCheck" style="margin-top:6px">Check account &amp; bet now</button>` : ""}${(botState().log || []).length ? `<details><summary class="pl-sub">Bot activity</summary><ul class="bot-log">${botState().log.slice().reverse().slice(0, 12).map(l => `<li><span class="pl-sub">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span> ${esc(l.text)}</li>`).join("")}</ul></details>` : ""}</div>` : ""}
-      <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
+      <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. NBA Kalshi picks: confidence is graded on edge size and price (in testing, edges over 25% made money and edges under 10% or NO bets costing over 60¢ lost). Other picks: confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
       <div class="edge-list">${shown.map(x => {
-        const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25;
+        const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25 && !b.fitted;   // NBA Kalshi (fitted) picks: big edges are the ones that held up
         let head = "";
         if (x.day !== lastDay) { lastDay = x.day; rank = 0; head = `<h3 class="day-head"><span>${esc(dayLabel(x.day))}</span><span class="pl-sub">${perDay[x.day] > opts.show ? `top ${opts.show} of ${perDay[x.day]}` : `${perDay[x.day]} prop${perDay[x.day] === 1 ? "" : "s"}`}</span></h3>`; }
         const i = rank++;
@@ -486,5 +488,5 @@
   }
   /** On page load: if Auto bet was left on, keep it running even before the Edge tab is opened. */
   function boot(el, DATA, api) { if (botState().on) startLive(el, DATA, api); }
-  window.PropEdge = { gameStarted, refreshStatus, render, chips, confBadge, refreshLive, live, boot, botSummary, runBot, botState, setData: d => { live.data = d; } };
+  window.PropEdge = { opts, gameStarted, refreshStatus, render, chips, confBadge, refreshLive, live, boot, botSummary, runBot, botState, setData: d => { live.data = d; } };
 })();
