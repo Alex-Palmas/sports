@@ -43,7 +43,7 @@ export function buildRows(hist, sport) {
     const g = p.logs[j], prior = p.logs.slice(j + 1);
     if (prior.length < 5) continue;
     const d = dvp(posGroup("nba", p.pos), g.opp, e.stat, g.date, g.season);
-    const pp = { pos: p.pos, logs: prior, home: g.home, opp: g.opp, restDays: Math.max(0, days(g.date, prior[0].date) - 1), withWithout: [], game: {},
+    const pp = { pos: p.pos, team: p.team, logs: prior, home: g.home, opp: g.opp, restDays: Math.max(0, days(g.date, prior[0].date) - 1), withWithout: [], game: {},
       dvp: d ? { group: posGroup("nba", p.pos), factor: { [e.stat]: d.f }, n: { [e.stat]: d.n }, rank: {}, of: 0 } : null };
     rows.push({ ev, game: `${ev.split("-")[1]}|${norm(m.name)}`, stat: e.stat, name: m.name, date: e.date, line: m.strike, y: m.y, bid: m.bid, ask: m.ask, mid: (m.bid + m.ask) / 2, mid0: m.mid0 ?? null, vol: m.vol || 0, p: pp, actual: m.value, min: g.min });
   }
