@@ -208,6 +208,7 @@
       const betting = !!el.querySelector("[data-qbet][data-armed],[data-qbet][data-busy],.qmove");
       if (!betting && (!live.lastHard || Date.now() - live.lastHard >= HARD_MS)) { await hardRefresh(true); ok = !live.err; }   // every 5 minutes
       else { ok = await refreshLive(live.data); if (botOn && ok) await runBot(live.data); }
+      if (botOn && !ok) botStatus(`Can't check prices right now${live.err ? ` (${live.err})` : ""}, so no bets this minute. In the PropLab Mac app this fixes itself; on the website your relay must be running.`);
       const DATA = live.data;
       if (el.hidden) return;
       // don't redraw under a bet that's being confirmed or placed
@@ -256,6 +257,8 @@
   const money = x => `$${(+x).toFixed(2)}`;
   const ACCOUNT_MS = 5 * 60e3;
   let botBusy = false;
+  /** One line saying what the bot is doing right now (or why it isn't betting). */
+  function botStatus(text) { const st = botState(); if (st.status?.text !== text) { st.status = { at: Date.now(), text }; saveBot(st); } }
   function botLog(st, text) { st.log = [...(st.log || []), { at: Date.now(), text }].slice(-30); }
   /** Picks the bot would bet now: the board's own list (filters applied) narrowed to bettable Kalshi edges. */
   function botPicks(DATA, st) {
@@ -300,8 +303,12 @@
       }
       let acct = await refreshAccount(K);   // checks cash and open bets every few minutes, even with no picks
       const picks = botPicks(DATA, st);
-      if (!picks.length) return;
-      let short = false, forced = false;
+      if (!picks.length) {
+        const all = rows(DATA).filter(x => x.r.best?.book === "Kalshi" && x.r.best.tk && x.r.best.ev > 0).length;
+        botStatus(all ? `Waiting for new picks: every pick on the board is already bet, skipped 3 times, or starting within 2 minutes.` : `Waiting for picks: nothing on the board has a Kalshi edge with your filters (min EV ${Math.round(opts.minEv * 100)}%, ${opts.grades.join("/")} confidence${opts.league !== "all" ? `, ${opts.league.toUpperCase()} only` : ""}${opts.day !== "all" ? `, one day only` : ""}).`);
+        return;
+      }
+      let short = false, forced = false, placed = 0;
       for (const x of picks) {
         st = botState(); if (!st.on) break;   // switched off mid-run
         const k = pickKey(x), b = x.r.best;
@@ -314,7 +321,7 @@
         try {
           const r = await K.quickBet({ p: x.p, sport: x.lg, stat: x.stat, label: x.label, best: b, amount, auto: true,
             confirmMove: async ({ ev }) => ev != null && ev > 0 });   // take a moved price only if the edge holds there
-          st = botState(); st.bets = (st.bets || 0) + 1; st.full = false;
+          placed++; st = botState(); st.bets = (st.bets || 0) + 1; st.full = false;
           st.acct = acct = { ...acct, cash: +(acct.cash - r.cost).toFixed(2), open: +(acct.open + r.cost).toFixed(2) };   // until the next account check
           (st.placed ||= {})[k] = { at: Date.now(), name: x.p.name, label: x.label, side: b.side, line: b.line, contracts: r.filled, cents: Math.round(r.each * 100), buy: r.buy, cost: r.cost };
           botLog(st, `Bought ${r.filled} ${r.buy.toUpperCase()} @ ${Math.round(r.each * 100)}¢ · ${x.p.name} ${b.side === "over" ? "over" : "under"} ${b.line} ${x.label} · ${money(r.cost)}`);
@@ -328,6 +335,11 @@
           botLog(st, `Skipped ${x.p.name} ${x.label}: ${e.message}`); saveBot(st);
         }
       }
+      { const z = sizing(acct, K.settings());
+        if (short) botStatus(z.cap - acct.open <= acct.cash   // the limit binds before the cash does
+          ? `At your limit: ${money(acct.open)} in open bets vs ${money(z.cap)} allowed (${z.pct}% of your ${money(z.value)} account). It bets again as bets settle, or raise "Max in open bets" in Settings.`
+          : `Out of cash: ${money(acct.cash)} available. It bets again when bets settle or you add money (it re-checks every 5 minutes, or tap Check now).`);
+        else if (placed) botStatus(`Placed ${placed} bet${placed === 1 ? "" : "s"} this check · ${money(z.room)} of room left.`); }
       if (short) { st = botState(); const z = sizing(acct, K.settings()); if (st.on && !st.full) { st.full = true; botLog(st, `Limit reached: ${money(acct.open)} in open bets (limit ${money(z.cap)} = ${z.pct}% of ${money(z.value)}), cash ${money(acct.cash)}. New picks get bet as open bets settle.`); saveBot(st); } }
     } catch (e) { st = botState(); st.on = false; st.stopped = e.message; botLog(st, `Stopped: ${e.message}`); saveBot(st); }
     finally { botBusy = false; }
@@ -338,7 +350,7 @@
     if (!st.on) return st.stopped ? `Auto bet stopped: ${esc(st.stopped)}` : `Auto bet is off. When on: ${betPct}% of your account per bet, at most ${pct}% in open bets, max ${money(ks.maxOrder ?? 25)} per bet.`;
     if (!st.acct) return `Auto bet on · ${betPct}% of account per bet, at most ${pct}% in open bets (checking your account…)`;
     const z = sizing(st.acct, ks), mins = Math.max(0, Math.round((Date.now() - st.acct.at) / 60e3));
-    return `Auto bet on · ${money(st.acct.open)} in open bets of ${money(z.cap)} allowed (${pct}% of ${money(z.value)}) · cash ${money(st.acct.cash)} · ${z.unit < 1 ? "1 contract" : money(z.unit)} per bet · ${st.bets || 0} bet${st.bets === 1 ? "" : "s"} today · account checked ${mins ? `${mins} min ago` : "just now"}`;
+    return `${st.status?.text ? `<b>${esc(st.status.text)}</b><br>` : ""}Auto bet on · ${money(st.acct.open)} in open bets of ${money(z.cap)} allowed (${pct}% of ${money(z.value)}) · cash ${money(st.acct.cash)} · ${z.unit < 1 ? "1 contract" : money(z.unit)} per bet · ${st.bets || 0} bet${st.bets === 1 ? "" : "s"} today · account checked ${mins ? `${mins} min ago` : "just now"}`;
   }
 
   // picks seen this session: a pick that first shows up after the board is open gets a NEW badge for 15 minutes
@@ -386,7 +398,7 @@
       ${accuracy(DATA)}
       <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${liveHidden.size ? ` · ${Math.ceil(liveHidden.size / 2) || 1} game${liveHidden.size > 2 ? "s" : ""} in progress hidden (no in-game bets)` : ""}${live.hardNote && Date.now() - live.hardNote.at < 90e3 ? ` · ${esc(live.hardNote.text)}` : ""}${live.lastHard ? ` · next hard refresh in ${Math.max(1, Math.ceil((live.lastHard + HARD_MS - Date.now()) / 60e3))} min` : ""}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button><button type="button" class="chip sm" id="edgeHard" title="Download the newest player data and Kalshi markets, re-price everything, and search the whole board again">⟳ Hard refresh</button>
         ${window.PropKalshi ? `<label class="check bot-toggle"><input type="checkbox" id="edgeBot"${botState().on ? " checked" : ""}/> Auto bet</label>` : ""}</div>
-      ${window.PropKalshi && (botState().on || botState().stopped) ? `<div class="card bot-box${botState().on ? " on" : ""}"><div>${botSummary()}</div>${(botState().log || []).length ? `<details><summary class="pl-sub">Bot activity</summary><ul class="bot-log">${botState().log.slice().reverse().slice(0, 12).map(l => `<li><span class="pl-sub">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span> ${esc(l.text)}</li>`).join("")}</ul></details>` : ""}</div>` : ""}
+      ${window.PropKalshi && (botState().on || botState().stopped) ? `<div class="card bot-box${botState().on ? " on" : ""}"><div>${botSummary()}</div>${botState().on ? `<button type="button" class="chip sm" id="botCheck" style="margin-top:6px">Check account &amp; bet now</button>` : ""}${(botState().log || []).length ? `<details><summary class="pl-sub">Bot activity</summary><ul class="bot-log">${botState().log.slice().reverse().slice(0, 12).map(l => `<li><span class="pl-sub">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span> ${esc(l.text)}</li>`).join("")}</ul></details>` : ""}</div>` : ""}
       <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. Confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
       <div class="edge-list">${shown.map(x => {
         const { p, r, stat, label, lg, sp } = x, b = r.best, warn = b && b.ev > 0.25;
@@ -433,6 +445,12 @@
     q("#edgeHard").onclick = async e => {
       const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Searching…";
       await hardRefresh(false); render(el, live.data, api, true);
+    };
+    if (q("#botCheck")) q("#botCheck").onclick = async e => {
+      const btn = e.currentTarget, K = window.PropKalshi; btn.disabled = true; btn.textContent = "Checking…";
+      try { const st = botState(); st.tries = {}; st.full = false; saveBot(st); await refreshAccount(K, true); await refreshLive(live.data, true); await runBot(live.data); }
+      catch (er) { botStatus(`Couldn't check your account: ${er.message}`); }
+      render(el, live.data, api, true);
     };
     q("#edgeRefresh").onclick = async e => {
       const btn = e.currentTarget; btn.disabled = true; btn.textContent = "Refreshing…";
