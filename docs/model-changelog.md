@@ -154,3 +154,19 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
 - **Fitted layer:** the leave-one-week-out log loss (0.48215) was worse than the plain price (0.48198), so the price is better.
 - **Board rule:** few picks, and inconsistent between the two halves of the season. EV ≥ 25% strictly forward: 45 bets at −17%. EV ≥ 2%: +3.6% / +4.5% overall, but −5.9% in the second half by leave-one-week-out.
 - **Conclusion:** no NFL player-prop edge. Nothing changed on the site; NFL picks keep the 90% market / 10% projection blend.
+
+## 2026-11-12 (owner: "do the same for NHL player props"; "can we check MLB from last season?")
+
+- **Tooling:** `scripts/props-study.mjs --league nfl|nhl|mlb` replaces `nfl-props-study.mjs`. `kalshi-history.mjs` gains the nhl and mlb leagues.
+- **NHL** (Oct 6 – Nov 11, 37 days, 27,461 markets; 15,523 for the site's 268 players):
+  - **Calibration:** points, goals and assists are close to fair. Overs on points and assists ran slightly cheap, e.g. points priced 70–90¢ hit 80% vs 73%. That's the opposite of the NBA.
+  - **Fitted layer:** marginally beat the price (0.48809 vs 0.48937).
+  - **Board rule:** lost money, −19% leave-one-day-out and −13% strictly forward on about 230 YES bets. The tiny bias doesn't survive the spread plus fee.
+  - **Verdict:** no edge.
+- **MLB** (Sep 6 – Oct 28, the end of the regular season through the World Series; 61,001 markets for hits, home runs, strikeouts, total bases and H+R+RBI):
+  - **Calibration:** close to fair, e.g. hits priced 50–70¢ hit 61% vs 60%.
+  - **Fitted layer:** didn't beat the price (0.48659 vs 0.48649).
+  - **Board rule:** −3.3% on 751 bets.
+  - **Verdict:** no edge.
+  - **Data limit:** Kalshi's live API only keeps about 2 months of settled markets, so earlier regular-season games would need Kalshi's historical API.
+- **Overall:** NBA points/PRA remains the only player-prop edge found.
