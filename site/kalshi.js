@@ -122,7 +122,7 @@
   // the PropLab Mac app runs its own relay and tells the page where it is
   const desktopRelay = () => (typeof window !== "undefined" && window.PROPLAB_DESKTOP?.relay) || null;
   const settings = () => {
-    let s; try { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, botPct: 50, botBetPct: 1, ...JSON.parse(localStorage.getItem(LS) || "{}") }; }
+    let s; try { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5, botPct: 50, botBetPct: 1, botLeadHours: 2, ...JSON.parse(localStorage.getItem(LS) || "{}") }; }
     catch { s = { relay: "http://localhost:8787", maxOrder: 25, enabled: false, quickAmount: 5 }; }
     if (desktopRelay()) s.relay = desktopRelay();
     return s;
@@ -289,10 +289,11 @@
       </select></label>
       <p class="pl-sub">Takes effect right away on the Edge Board and for Auto bet. On real Kalshi results neither model found a reliable edge on NBA props (an earlier "NO on overs" edge came from a backtest bug, fixed 2026-11-13), so expect few or no picks.</p>`; })() : ""}
       <h3 class="set-h">Auto bet bot</h3>
-      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. It checks your Kalshi cash and open bets every few minutes: your account = cash + money in open bets. Each bet is a share of the account (capped by "Max per order", at least one contract), and the bot keeps the money in open bets under its limit, so when bets settle the freed cash goes into new picks. One bet per pick. It only runs while PropLab is open.</p>
+      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. It checks your Kalshi cash and open bets every few minutes: your account = cash + money in open bets. Each bet is a share of the account (capped by "Max per order", at least one contract), and the bot keeps the money in open bets under its limit, so when bets settle the freed cash goes into new picks. One bet per pick, placed only in the last hours before the game (default 2 h). It only runs while PropLab is open.</p>
       <div class="tf-grid">
         <label>Each bet (% of account) <input id="setBotBetPct" type="number" min="0.1" max="100" step="0.1" value="${esc(s.botBetPct ?? 1)}"/></label>
         <label>Max in open bets (% of account) <input id="setBotPct" type="number" min="1" max="100" step="1" value="${esc(s.botPct ?? 50)}"/></label>
+        <label>Bet only within (hours before the game) <input id="setBotLead" type="number" min="0.25" max="48" step="0.25" value="${esc(s.botLeadHours ?? 2)}"/></label>
         <div class="pl-sub" id="setBotNow">${root.PropEdge?.botSummary?.() || ""}</div>
       </div>
       <div class="pl-sub" id="setMsg" role="status"></div>
@@ -317,7 +318,8 @@
       const maxOrder = Math.min(1000, Math.max(1, +$("#setMax").value || 25));
       saveSettings({ ...settings(), relay, maxOrder, quickAmount: Math.min(maxOrder, Math.max(1, +$("#setQuick").value || 5)), enabled: $("#setOn").checked && !!(await getCred()),
         botPct: Math.min(100, Math.max(1, Math.round(+$("#setBotPct").value || 50))),
-        botBetPct: Math.min(100, Math.max(0.1, Math.round((+$("#setBotBetPct").value || 1) * 10) / 10)) });
+        botBetPct: Math.min(100, Math.max(0.1, Math.round((+$("#setBotBetPct").value || 1) * 10) / 10)),
+        botLeadHours: Math.min(48, Math.max(0.25, +$("#setBotLead").value || 2)) });
     };
     // sportsbook odds (The Odds API): saved with the rest; Test and Load use the key in the box or the saved one
     const oMsg = (t, bad) => { const m = $("#setOddsMsg"); if (m) { m.innerHTML = t; m.style.color = bad ? "var(--miss)" : ""; } };

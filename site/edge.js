@@ -310,8 +310,17 @@
         botStatus(all ? `Waiting for new picks: every pick on the board is already bet, skipped 3 times, or starting within 2 minutes.` : `Waiting for picks: nothing on the board has a Kalshi edge with your filters (min EV ${Math.round(opts.minEv * 100)}%, ${opts.grades.join("/")} confidence${opts.league !== "all" ? `, ${opts.league.toUpperCase()} only` : ""}${opts.day !== "all" ? `, one day only` : ""}).`);
         return;
       }
+      // only bet inside the window before tip-off (Settings: "Bet only within … hours of the game")
+      const lead = (K.settings().botLeadHours ?? 2) * 3600e3, now = Date.now();
+      const early = picks.filter(x => !(Date.parse(x.p.gameDate || "") <= now + lead));   // unknown start time: wait
+      const ready = picks.filter(x => !early.includes(x));
+      if (!ready.length) {
+        const first = Math.min(...early.map(x => Date.parse(x.p.gameDate || "")).filter(t => t > 0));
+        botStatus(`Waiting: ${early.length} pick${early.length === 1 ? "" : "s"} on the board, but it only bets within ${K.settings().botLeadHours ?? 2} h of the game. ${isFinite(first) ? ` The first window opens at ${new Date(first - lead).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.` : ""}`);
+        return;
+      }
       let short = false, forced = false, placed = 0;
-      for (const x of picks) {
+      for (const x of ready) {
         st = botState(); if (!st.on) break;   // switched off mid-run
         const k = pickKey(x), b = x.r.best;
         if (gameStarted(x.lg, x.p) || Date.parse(x.p.gameDate || "") < Date.now() + 2 * 60e3) continue;   // never bet a game in progress
@@ -438,7 +447,7 @@
       const ks = K.settings();
       if (!ks.enabled || !(await K.getCred())) { e.target.checked = false; alert("Auto bet needs your Kalshi API key and \"Enable placing orders\" in Settings."); K.openSettings(); return; }
       const n = botPicks(DATA, st).length;
-      if (!confirm(`Turn on Auto bet?\n\nIt places REAL Kalshi orders without asking, on every pick the Edge Board shows with positive EV after fees (${n} right now), and on new ones as they appear.\n\nEach bet: ${ks.botBetPct ?? 1}% of your Kalshi account (at most ${money(ks.maxOrder)}). Money in open bets stays under ${ks.botPct ?? 50}% of your account; when bets settle, the freed cash goes into new picks. Change these in Settings. One bet per pick. Runs while PropLab is open.\n\nOur tests found Kalshi's prices hard to beat: expect small or no edge.`)) { e.target.checked = false; return; }
+      if (!confirm(`Turn on Auto bet?\n\nIt places REAL Kalshi orders without asking, on every pick the Edge Board shows with positive EV after fees (${n} right now), and on new ones as they appear.\n\nEach bet: ${ks.botBetPct ?? 1}% of your Kalshi account (at most ${money(ks.maxOrder)}). Money in open bets stays under ${ks.botPct ?? 50}% of your account; when bets settle, the freed cash goes into new picks. Change these in Settings. Bets only within ${ks.botLeadHours ?? 2} h of each game. One bet per pick. Runs while PropLab is open.\n\nOur tests found Kalshi's prices hard to beat: expect small or no edge.`)) { e.target.checked = false; return; }
       st.on = true; st.stopped = null; st.acct = null; botLog(st, `Turned on (${ks.botBetPct ?? 1}% per bet, at most ${ks.botPct ?? 50}% in open bets, max ${money(ks.maxOrder)} per bet)`); saveBot(st);
       startLive(el, DATA, api); render(el, DATA, api, true);
       await runBot(DATA); render(el, DATA, api, true);

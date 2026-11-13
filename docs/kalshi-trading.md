@@ -66,3 +66,6 @@ Tick **Auto bet** on the Edge Board to let PropLab place bets for you.
 - **Stopping:** the bot stops itself on any error other than a skipped pick, such as a rejected key or insufficient funds. The reason shows in the bot box on the Edge Board.
 - **When it runs:** only while PropLab is open (the Mac app or a browser tab). It keeps running if you switch tabs inside PropLab, and it resumes after a reload.
 - **Records:** every bot bet is listed in My Bets, marked "bot".
+
+### Bet window (2026-11-13)
+Auto bet only places a pick within **2 hours of the game's start** (Settings → Auto bet bot → "Bet only within (hours before the game)", 0.25–48 h). Picks for later games wait on the board; the bot status shows when the first window opens. Picks with no known start time are not bet.
