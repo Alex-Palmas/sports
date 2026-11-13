@@ -284,10 +284,10 @@
       ${root.PropModel?.EDGE_FITS ? (() => { const mode = root.PropModel.edgeMode(); return `
       <h3 class="set-h">Edge model (NBA Kalshi props)</h3>
       <label>Model <select id="setEdgeMode">
-        <option value="players"${mode === "players" ? " selected" : ""}>Site players: favors NO on points / PRA overs (tested +7–10% on later days)</option>
-        <option value="market"${mode === "market" ? " selected" : ""}>Conservative: follows Kalshi's price (few or no bets)</option>
+        <option value="market"${mode === "market" ? " selected" : ""}>Conservative: follows Kalshi's price (recommended; few or no bets)</option>
+        <option value="players"${mode === "players" ? " selected" : ""}>Site players: Kalshi's price refit on the site's players (also close to the price)</option>
       </select></label>
-      <p class="pl-sub">Takes effect right away on the Edge Board and for Auto bet. The site-players model is fitted on about 3 weeks of early-season games; switch back to Conservative if it stops working.</p>`; })() : ""}
+      <p class="pl-sub">Takes effect right away on the Edge Board and for Auto bet. On real Kalshi results neither model found a reliable edge on NBA props (an earlier "NO on overs" edge came from a backtest bug, fixed 2026-11-13), so expect few or no picks.</p>`; })() : ""}
       <h3 class="set-h">Auto bet bot</h3>
       <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. It checks your Kalshi cash and open bets every few minutes: your account = cash + money in open bets. Each bet is a share of the account (capped by "Max per order", at least one contract), and the bot keeps the money in open bets under its limit, so when bets settle the freed cash goes into new picks. One bet per pick. It only runs while PropLab is open.</p>
       <div class="tf-grid">
@@ -339,7 +339,7 @@
         oMsg(`Loaded ${r.games} of ${r.of} upcoming game${r.of === 1 ? "" : "s"} (${r.spent} credits): book lines for ${Object.keys(r.quotes).length} player prop${Object.keys(r.quotes).length === 1 ? "" : "s"}.${r.remaining != null ? ` ${r.remaining} credits left this month.` : ""}${r.games < r.of ? " Raise “Credits per load” to cover more games." : ""}`); }
       catch (e) { oMsg(esc(e.message), true); }
     };
-    if ($("#setEdgeMode")) $("#setEdgeMode").onchange = e => { try { localStorage.setItem((root.PROPLAB_NS || "proplab:") + "edgeMode", JSON.stringify(e.target.value)); } catch {} root.PropView?.redraw?.(); };
+    if ($("#setEdgeMode")) $("#setEdgeMode").onchange = e => { try { localStorage.setItem((root.PROPLAB_NS || "proplab:") + "edgeMode2", JSON.stringify(e.target.value)); } catch {} root.PropView?.redraw?.(); };
     $("#setTest").onclick = async () => { try { await persist(); msg("Testing…"); const info = await balanceInfo();
       msg(`Connected. Kalshi balance: <b>${usd(info.total)}</b>${info.shards.length > 1 ? ` <span class="pl-sub">(${esc(describeBalances(info))})</span>` : ""}${info.subaccountKey ? `<br><span style="color:var(--amber)">This API key is tied to a subaccount, so it only sees that subaccount's money.</span>` : ""}${info.key && !info.key.scopes.some(x => /write/.test(x)) ? `<br><span style="color:var(--amber)">This API key is read-only, so it can't place orders.</span>` : ""}`); } catch (e) { msg(esc(e.message), true); } };
     $("#setForm").onsubmit = async e => { e.preventDefault(); try { await persist(); dlg.close(); root.PropKalshi.onChange?.(); } catch (er) { msg(esc(er.message), true); } };

@@ -37,8 +37,10 @@ export function buildRows(hist, sport) {
   for (const [ev, e] of Object.entries(hist.events)) for (const m of e.markets) {
     if (m.bid == null || m.ask == null || !(m.ask > m.bid - 1e-9)) continue;
     const p = pmap.get(norm(m.name)); if (!p || !byName.has(norm(m.name))) continue;
-    // ESPN log dates are UTC: an evening ET game on D is logged D or D+1. The settlement value confirms it.
-    const j = p.logs.findIndex(l => (l.date === e.date || l.date === addDay(e.date, 1)) && (m.value == null || statOf(l, e.stat) === m.value));
+    // ESPN log dates are UTC: an evening ET game on D is logged D or D+1. Match by date only: Kalshi closes a
+    // market early when the over hits and records the stat at that moment (not the final), so requiring the
+    // value to equal the final stat silently dropped almost every over that hit (fixed 2026-11-13).
+    const j = p.logs.findIndex(l => l.date === e.date || l.date === addDay(e.date, 1));
     if (j < 0) continue;
     const g = p.logs[j], prior = p.logs.slice(j + 1);
     if (prior.length < 5) continue;

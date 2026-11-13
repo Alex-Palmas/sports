@@ -170,3 +170,19 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
   - **Verdict:** no edge.
   - **Data limit:** Kalshi's live API only keeps about 2 months of settled markets, so earlier regular-season games would need Kalshi's historical API.
 - **Overall:** NBA points/PRA remains the only player-prop edge found.
+
+## 2026-11-13 — CORRECTION: the "NO on points/PRA overs" edge was a backtest bug
+
+- **The bug:** `scripts/market-backtest.mjs` matched each Kalshi market to the player's ESPN game by requiring Kalshi's settlement value to equal the final ESPN stat. Kalshi closes a prop market **early when the over hits** and records the stat at that moment (e.g. 15 when 14.5 is crossed), not the final total.
+- **The effect:** almost every over that hit was dropped from the backtest. For the site's players, 3,432 markets were dropped, and YES had hit in 95.7% of them, against 65.6% priced. With those missing, overs looked overpriced.
+- **Corrected:** markets are matched by date only. On the full 23,886 markets (Oct 20 – Nov 12):
+  - the fitted layer equals the plain market price (log loss 0.4962 vs 0.4962), and no stat term survives;
+  - no picks reach 10% EV;
+  - small-edge picks lose −4% to −12%.
+- **Live replay straight from Kalshi results:** the old fit's 25%+ picks returned −37% on Nov 11 and −18% on Nov 12.
+- **Changes:**
+  - The default edge model is **Conservative** (`market`). The `players` fit is replaced by the corrected one: b0 0.0348, bMid 1.0262, no stat terms.
+  - The setting key moved to `edgeMode2`, so earlier "players" choices reset.
+  - The Settings wording is updated.
+  - On today's slate there are 0 picks at EV ≥ 25%, so Auto bet places nothing.
+- **What's still valid:** the NFL, NHL and MLB player-prop studies and the game-line studies (college, tennis, NBA totals) used Kalshi's own results without this matching, so they stand. All of them showed no edge. The entries from 2026-11-12 about the site-players fit, the 25% bracket and the EV brackets are **void**.
