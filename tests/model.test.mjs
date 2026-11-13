@@ -45,18 +45,20 @@ test("probabilities blend model and history; best bet across quotes", () => {
   assert.ok(n.probs.over > 0.8); assert.ok(n.best.ev <= 0.001, "market-anchored: no edge from the projection");
 });
 
-test("fitted Kalshi edge layer: site-players fit (default) marks points/PRA overs down; conservative fit stays on the price", () => {
+test("edge model defaults to Conservative; corrected site-players fit stays on the price", () => {
+  delete globalThis.localStorage;
+  assert.equal(M.edgeMode(), "market");
+  globalThis.localStorage = { m: { "proplab:edgeMode2": JSON.stringify("players") }, getItem(k) { return this.m[k] ?? null; }, setItem(k, v) { this.m[k] = v; } };
   assert.equal(M.edgeMode(), "players");
   const ctx0 = { p: { logs: logs(Array(20).fill(30)) }, proj: null, league: "nba", modelOver: 0.95 };
   const pts0 = M.edgeOver({ b: "Kalshi", l: 29.5, ya: 0.51, na: 0.51 }, { ...ctx0, stat: "pts" });
   const reb0 = M.edgeOver({ b: "Kalshi", l: 9.5, ya: 0.51, na: 0.51 }, { ...ctx0, stat: "reb" });
-  assert.ok(pts0 < 0.42 && reb0 > pts0, "points overs priced at 50% are marked well down");
-  globalThis.localStorage = { m: { "proplab:edgeMode": JSON.stringify("market") }, getItem(k) { return this.m[k] ?? null; }, setItem(k, v) { this.m[k] = v; } };
-  assert.equal(M.edgeMode(), "market");
+  assert.ok(Math.abs(pts0 - 0.5) < 0.03 && Math.abs(reb0 - pts0) < 1e-9, "no stat-specific markdown after the fix");
+  delete globalThis.localStorage;
 });
 
 test("fitted Kalshi edge layer stays on the market price, marks combo overs down (conservative fit)", () => {
-  globalThis.localStorage = { m: { "proplab:edgeMode": JSON.stringify("market") }, getItem(k) { return this.m[k] ?? null; }, setItem(k, v) { this.m[k] = v; } };
+  globalThis.localStorage = { m: { "proplab:edgeMode2": JSON.stringify("market") }, getItem(k) { return this.m[k] ?? null; }, setItem(k, v) { this.m[k] = v; } };
   const ctx = { p: { logs: logs(Array(20).fill(30)) }, proj: null, league: "nba", modelOver: 0.95 };
   const pts = M.edgeOver({ b: "Kalshi", l: 29.5, ya: 0.51, na: 0.51 }, { ...ctx, stat: "pts" });   // mid 0.50
   assert.ok(Math.abs(pts - 0.5) < 0.03, "ignores our 95%");

@@ -77,18 +77,18 @@
    * Fitted out of sample (leave-one-day-out); variables that didn't improve on the market were dropped.
    */
   const EDGE_FITS = {
-    // Fitted on the players the site covers (each team's rotation plus anyone with a priced prop):
-    // 18,623 settled Kalshi NBA prop markets, Oct 20 – Nov 9 2026. For these players overs on points
-    // and PRA ran rich; forward tests (fit on earlier days, bet NO at EV ≥ 2% on later days) returned
-    // +9.7% / +8.8% / +7.3% after fees, winning 27 of 31 test days. Early-season sample: the daily
-    // tuning re-checks it, and Settings → Edge model switches back to the conservative fit.
-    players: { nba: { n: 18623, days: 20, through: "2026-11-09", b0: -0.1252, bMid: 0.937, statCombo: -0.4304, statPts: -0.3116 } },
+    // Fitted on the site's own players: 23,886 settled Kalshi NBA prop markets, Oct 20 – Nov 12 2026,
+    // after fixing a backtest bug (2026-11-13). The earlier "players" fit (NO on points/PRA overs) came from
+    // that bug: markets were matched to ESPN logs by final stat, but Kalshi closes a market early when the
+    // over hits and records the stat at that moment, so nearly every over that hit was dropped. Corrected,
+    // the market price is already calibrated for these players; no stat terms survive.
+    players: { nba: { n: 23886, days: 23, through: "2026-11-12", b0: 0.0348, bMid: 1.0262 } },
     // Fitted on every Kalshi NBA prop market (bench players included): 28,431 markets, Oct 20 – Nov 10.
     // Close to the plain market price; almost nothing beats it after the spread and fee.
     market: { nba: { n: 28431, days: 21, through: "2026-11-10", b0: 0.0533, bMid: 1.0159, statCombo: -0.2115, statPts: -0.0684 } },
   };
-  /** Which fit is on: Settings → Edge model ("players", the default, or "market"). */
-  const edgeMode = () => { try { const v = root.localStorage?.getItem((root.PROPLAB_NS || "proplab:") + "edgeMode"); return v && EDGE_FITS[JSON.parse(v)] ? JSON.parse(v) : "players"; } catch { return "players"; } };
+  /** Which fit is on: Settings → Edge model ("market", the default since 2026-11-13, or "players"). */
+  const edgeMode = () => { try { const v = root.localStorage?.getItem((root.PROPLAB_NS || "proplab:") + "edgeMode2"); return v && EDGE_FITS[JSON.parse(v)] ? JSON.parse(v) : "market"; } catch { return "market"; } };
   const edgeFit = league => EDGE_FITS[edgeMode()][league] || null;
 
   // negative binomial P(X ≤ k) with mean mu and variance v (> mu); Poisson when v ≤ mu
