@@ -195,3 +195,12 @@ The 2026-11-13 bug (matching Kalshi markets to ESPN logs by final stat) was only
 - Game lines after fees: NBA total unders +1.3% / +4.0% (177 games), NCAAMB unders −0.7% / +8.6%, NCAAF unders −9.5% / +4.6%; no spread rule positive in both halves except tiny NBA big-favorite/underdog splits.
 - Tennis: ATP underdogs +1.8% / +7.1% (468 events); everything else negative or inconsistent.
 No change to the board. Watch-only: NBA total unders, ATP underdogs (small samples, positive in both halves).
+
+## 2026-11-15 — NFL deep study (scripts/nfl-deep.mjs)
+All 68 per-game Kalshi NFL series with a quote (105,260 priced markets, 7,971 events, weeks 1–10), last hourly quote before kickoff, scored on Kalshi's own result.
+- 994 pre-registered rules (price-bucket YES/NO, main line, follow/fade the pre-game move; per series and pooled), discovery weeks 1–6, holdout last 4 weeks: 29 passed discovery (≥60 bets, > +5%), only 8 stayed positive in the holdout (fewer than chance), 0 with a week-bootstrap range above 0.
+- Calibration at the mid is near perfect, long shots included (YES 2–6¢ hit 3.8% vs priced 3.8%); the losses on YES long shots are spread + fee. NO on long shots with resting limit orders shows +1.7% only if every order fills (market making, not an edge).
+- Arbitrage: 2 of 2,368 mutually exclusive outcome sets and 1 of 71,660 neighbouring ladder strikes were risk-free after fees.
+- Kalshi vs DraftKings closing lines (ESPN): Kalshi log loss 0.6563 vs DraftKings no-vig 0.6575 on 463 matched winner/total/spread markets; they rarely differ by more than fees and the few bets lost overall.
+- Situational (home, popular teams, prime time, favorites): every rule flips sign between halves.
+No change to the board.
