@@ -1,5 +1,46 @@
 [
  {
+  "file": "2026-11-15-1151-espn.json",
+  "date": "2026-11-15",
+  "started": "2026-11-15T11:51:58.290Z",
+  "feed": "espn",
+  "leagues": [
+   "nfl"
+  ],
+  "games": 1,
+  "gameNames": [
+   "NFL NE VS DET"
+  ],
+  "plays": 174,
+  "crossings": 47,
+  "measured": 43,
+  "medianFeedDelay": 45.1285,
+  "medianFeedDelayNba": null,
+  "medianFeedDelayNfl": 45.1285,
+  "medianKalshiDelay": 73.631,
+  "feedFirstShare": 0.6744186046511628,
+  "staleChances": 20,
+  "medianStaleEdge": 0.045,
+  "scoringPlays": 0,
+  "medianGameLineDelay": null,
+  "propMove": 0.4975,
+  "propStart": 24.839,
+  "propT50": 46.801,
+  "propT90": 51.568,
+  "propSteps": 1,
+  "propTraded": 8,
+  "propLeftAtSeen": 0.9135,
+  "gameMoved": 0,
+  "gameMove": null,
+  "gameStart": null,
+  "gameT50": null,
+  "gameT90": null,
+  "gameSteps": null,
+  "gameTraded": null,
+  "gameLeftAtSeen": null,
+  "markets": 982
+ },
+ {
   "file": "2026-11-14-2057-espn.json",
   "date": "2026-11-14",
   "started": "2026-11-14T20:57:03.370Z",
