@@ -204,3 +204,9 @@ All 68 per-game Kalshi NFL series with a quote (105,260 priced markets, 7,971 ev
 - Kalshi vs DraftKings closing lines (ESPN): Kalshi log loss 0.6563 vs DraftKings no-vig 0.6575 on 463 matched winner/total/spread markets; they rarely differ by more than fees and the few bets lost overall.
 - Situational (home, popular teams, prime time, favorites): every rule flips sign between halves.
 No change to the board.
+
+## 2026-11-15 — NFL player stats vs Kalshi props (scripts/nfl-players.mjs, scripts/nfl-props-model.mjs)
+ESPN game logs for all 789 rostered QB/RB/WR/TE (this season + last), joined to 39,265 Kalshi NFL prop markets (13 series: pass/rush/rec yards, receptions, attempts, completions, INTs, TDs, longest rush/reception) by name and date only, games strictly before the market's date.
+- Log loss, forward weeks: Kalshi mid 0.48238; + last-10 hit rate 0.48227; + average vs line 0.48222; + last 3 games 0.48240; + opponent defense vs position 0.48266; all signals 0.48286. Player stats add ~0.0001 at best; coefficients on the signals are ~0.04.
+- Edge Board rule after fees: every variant loses, or wins one half and loses the other (e.g. average vs line, EV ≥ 3%, leave-one-week-out: +22% / −51%). Nothing reaches EV ≥ 25%.
+No change.
