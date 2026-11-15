@@ -265,15 +265,20 @@
   /** One line saying what the bot is doing right now (or why it isn't betting). */
   function botStatus(text) { const st = botState(); if (st.status?.text !== text) { st.status = { at: Date.now(), text }; saveBot(st); } }
   function botLog(st, text) { st.log = [...(st.log || []), { at: Date.now(), text }].slice(-30); }
-  /** Picks the bot would bet now: the board's own list (filters applied) narrowed to bettable Kalshi edges. */
-  function botPicks(DATA, st) {
-    const now = Date.now();
+  /** Money already in this pick: what the bot spent on it, or your Kalshi position in that market, whichever is more. */
+  const spentOn = (x, st, acct) => Math.max(st.placed?.[pickKey(x)]?.cost || 0, acct?.byTk?.[x.r.best.tk] || 0);
+  const oneContractOf = b => { const a = b.side === "over" ? b.ya : b.na; return a != null ? a + 0.02 : 0.2; };   // price + fee
+  /** Picks the bot would bet now: the board's own list (filters applied) narrowed to bettable Kalshi edges.
+   *  A pick already bet stays in while it still shows on the board and less than one bet's worth is in it, so it gets topped up. */
+  function botPicks(DATA, st, acct) {
+    const now = Date.now(), target = acct ? Math.max(sizing(acct, window.PropKalshi?.settings?.() || {}).unit, 1) : 1;
     return rows(DATA).filter(x => {
       const b = x.r.best;
       if (!b || b.book !== "Kalshi" || !b.tk || !(b.ev > 0) || b.ev < opts.minEv) return false;
       if (opts.day !== "all" && dayKey(x.p.gameDate) !== opts.day) return false;
       if (!x.p.gameDate || Date.parse(x.p.gameDate) < now + 2 * 60e3) return false;   // started or about to
-      const k = pickKey(x); return !st.placed?.[k] && (st.tries?.[k] || 0) < 3;
+      const k = pickKey(x); if ((st.tries?.[k] || 0) >= 3) return false;
+      return target - spentOn(x, st, acct) >= oneContractOf(b);   // room for at least one more contract in this pick
     }).sort((a, b) => b.r.best.ev - a.r.best.ev);
   }
   /** Cash and open bets from Kalshi (refreshed every 2 minutes, or when forced). */
@@ -283,7 +288,7 @@
     const [info, open] = await Promise.all([K.balanceInfo(), K.openExposure()]);
     st = botState();
     const prev = st.acct;
-    st.acct = { at: Date.now(), cash: info.total, open: open.total, positions: open.positions };
+    st.acct = { at: Date.now(), cash: info.total, open: open.total, positions: open.positions, byTk: open.byTk || {} };
     // money came back (bets settled): say so and lift the "limit reached" pause
     if (prev && open.total < prev.open - 0.5) { botLog(st, `Bets settled: ${money(prev.open - open.total)} back from open bets · cash ${money(info.total)}`); st.full = false; st.tries = {}; }
     else if (prev && info.total > prev.cash + 0.5) { botLog(st, `More cash: ${money(info.total)} available (was ${money(prev.cash)})`); st.full = false; st.tries = {}; }   // deposit or payout
@@ -308,10 +313,10 @@
         st.day = todayKey(); st.bets = 0; st.tries = {}; saveBot(st);
       }
       let acct = await refreshAccount(K);   // checks cash and open bets every few minutes, even with no picks
-      const picks = botPicks(DATA, st);
+      const picks = botPicks(DATA, st, acct);
       if (!picks.length) {
         const all = rows(DATA).filter(x => x.r.best?.book === "Kalshi" && x.r.best.tk && x.r.best.ev > 0).length;
-        botStatus(all ? `Waiting for new picks: every pick on the board is already bet, skipped 3 times, or starting within 2 minutes.` : `Waiting for picks: nothing on the board has a Kalshi edge with your filters (min EV ${Math.round(opts.minEv * 100)}%, ${opts.grades.join("/")} confidence${opts.league !== "all" ? `, ${opts.league.toUpperCase()} only` : ""}${opts.day !== "all" ? `, one day only` : ""}).`);
+        botStatus(all ? `Waiting for new picks: every pick on the board already has a full bet in it, was skipped 3 times, or starts within 2 minutes.` : `Waiting for picks: nothing on the board has a Kalshi edge with your filters (min EV ${Math.round(opts.minEv * 100)}%, ${opts.grades.join("/")} confidence${opts.league !== "all" ? `, ${opts.league.toUpperCase()} only` : ""}${opts.day !== "all" ? `, one day only` : ""}).`);
         return;
       }
       // only bet inside the window before tip-off (Settings: "Bet only within … hours of the game")
@@ -329,17 +334,20 @@
         const k = pickKey(x), b = x.r.best;
         if (gameStarted(x.lg, x.p) || Date.parse(x.p.gameDate || "") < Date.now() + 2 * 60e3) continue;   // never bet a game in progress
         let z = sizing(acct, K.settings());
-        const ask = b.side === "over" ? b.ya : b.na, oneContract = ask != null ? ask + 0.02 : 0.2;   // price + fee
+        const oneContract = oneContractOf(b);
         if (z.room < oneContract && !forced) { acct = await refreshAccount(K, true); forced = true; z = sizing(acct, K.settings()); }   // maybe bets settled since
         if (z.room < oneContract) { short = true; continue; }   // a cheaper pick may still fit
-        const amount = Math.min(z.room, Math.max(z.unit, 1));
+        const have = spentOn(x, st, acct), amount = +Math.min(z.room, Math.max(z.unit, 1) - have).toFixed(2);   // top up to one bet's worth
+        if (amount < oneContract) continue;
         try {
           const r = await K.quickBet({ p: x.p, sport: x.lg, stat: x.stat, label: x.label, best: b, amount, auto: true,
             confirmMove: async ({ ev }) => ev != null && ev > 0 });   // take a moved price only if the edge holds there
           placed++; st = botState(); st.bets = (st.bets || 0) + 1; st.full = false;
           st.acct = acct = { ...acct, cash: +(acct.cash - r.cost).toFixed(2), open: +(acct.open + r.cost).toFixed(2) };   // until the next account check
-          (st.placed ||= {})[k] = { at: Date.now(), name: x.p.name, label: x.label, side: b.side, line: b.line, contracts: r.filled, cents: Math.round(r.each * 100), buy: r.buy, cost: r.cost };
-          botLog(st, `Bought ${r.filled} ${r.buy.toUpperCase()} @ ${Math.round(r.each * 100)}¢ · ${x.p.name} ${b.side === "over" ? "over" : "under"} ${b.line} ${x.label} · ${money(r.cost)}`);
+          const was = st.placed?.[k];
+          (st.placed ||= {})[k] = { at: Date.now(), name: x.p.name, label: x.label, side: b.side, line: b.line, contracts: (was?.contracts || 0) + r.filled, cents: Math.round(r.each * 100), buy: r.buy, cost: +((was?.cost || 0) + r.cost).toFixed(2) };
+          if (st.acct?.byTk) st.acct.byTk[b.tk] = +((st.acct.byTk[b.tk] || 0) + r.cost).toFixed(2);
+          botLog(st, `${have > 0 ? "Topped up" : "Bought"} ${r.filled} ${r.buy.toUpperCase()} @ ${Math.round(r.each * 100)}¢ · ${x.p.name} ${b.side === "over" ? "over" : "under"} ${b.line} ${x.label} · ${money(r.cost)}${have > 0 ? ` (now ${money(st.placed[k].cost)} in it)` : ""}`);
           saveBot(st);
         } catch (e) {
           st = botState();
@@ -456,8 +464,8 @@
       if (!e.target.checked) { st.on = false; st.stopped = null; botLog(st, "Turned off"); saveBot(st); render(el, DATA, api, true); return; }
       const ks = K.settings();
       if (!ks.enabled || !(await K.getCred())) { e.target.checked = false; alert("Auto bet needs your Kalshi API key and \"Enable placing orders\" in Settings."); K.openSettings(); return; }
-      const n = botPicks(DATA, st).length;
-      if (!confirm(`Turn on Auto bet?\n\nIt places REAL Kalshi orders without asking, on every pick the Edge Board shows with positive EV after fees (${n} right now), and on new ones as they appear.\n\nEach bet: ${ks.botBetPct ?? 1}% of your Kalshi account (at most ${money(ks.maxOrder)}). Money in open bets stays under ${ks.botPct ?? 50}% of your account; when bets settle, the freed cash goes into new picks. Change these in Settings. Bets only within ${ks.botLeadHours ?? 2} h of each game. One bet per pick. Runs while PropLab is open.\n\nOur tests found Kalshi's prices hard to beat: expect small or no edge.`)) { e.target.checked = false; return; }
+      const n = botPicks(DATA, st, st.acct).length;
+      if (!confirm(`Turn on Auto bet?\n\nIt places REAL Kalshi orders without asking, on every pick the Edge Board shows with positive EV after fees (${n} right now), and on new ones as they appear.\n\nEach bet: ${ks.botBetPct ?? 1}% of your Kalshi account (at most ${money(ks.maxOrder)}). Money in open bets stays under ${ks.botPct ?? 50}% of your account; when bets settle, the freed cash goes into new picks. Change these in Settings. Bets only within ${ks.botLeadHours ?? 2} h of each game. Each pick gets up to one bet's worth (topped up if a fill came in short). Runs while PropLab is open.\n\nOur tests found Kalshi's prices hard to beat: expect small or no edge.`)) { e.target.checked = false; return; }
       st.on = true; st.stopped = null; st.acct = null; botLog(st, `Turned on (${ks.botBetPct ?? 1}% per bet, at most ${ks.botPct ?? 50}% in open bets, max ${money(ks.maxOrder)} per bet)`); saveBot(st);
       startLive(el, DATA, api); render(el, DATA, api, true);
       await runBot(DATA); render(el, DATA, api, true);
