@@ -5,6 +5,7 @@
  *   node scripts/set-password.mjs                 # generates a strong password and prints it once
  *   node scripts/set-password.mjs 'my passphrase' # or choose one (10+ characters)
  *   node scripts/set-password.mjs --lock-all      # keep the password, but lock every device now
+ *   node scripts/set-password.mjs --add 'other'   # add another password that also unlocks (kept in "also")
  *
  * Only a salted PBKDF2-SHA256 hash (310,000 iterations) is stored, never the password. Commit and push
  * site/access.json afterwards. Every device re-checks on each page load, so a new password or --lock-all
@@ -27,6 +28,11 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (!existsSync(FILE)) { console.error(`no ${FILE} yet: set a password first`); process.exit(1); }
     const a = JSON.parse(readFileSync(FILE, "utf8")); a.epoch = (a.epoch || 0) + 1; a.locked = new Date().toISOString();
     writeFileSync(FILE, JSON.stringify(a, null, 1) + "\n"); console.log(`locked every device (epoch ${a.epoch}); commit and push ${FILE}`); process.exit(0);
+  }
+  if (process.argv[2] === "--add") {
+    const pw = process.argv[3]; if (!pw || pw.length < 4) { console.error("give the extra password (4+ characters)"); process.exit(1); }
+    const a = JSON.parse(readFileSync(FILE, "utf8")); a.also = [...(a.also || []), makeAccess(pw)];
+    writeFileSync(FILE, JSON.stringify(a, null, 1) + "\n"); console.log(`added a password (${a.also.length} extra); commit and push ${FILE}`); process.exit(0);
   }
   const given = process.argv[2];
   if (given && given.length < 10) { console.error("password must be at least 10 characters"); process.exit(1); }

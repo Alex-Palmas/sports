@@ -14,8 +14,16 @@ test("password gate: the browser's PBKDF2 check matches set-password's hash", as
   assert.equal(await A.verify(null, "anything"), false);
 });
 
+test("an extra password in also unlocks too", async () => {
+  const access = { ...makeAccess("correct horse battery"), also: [makeAccess("second one")] };
+  assert.equal(await A.verify(access, "second one"), true);
+  assert.equal(await A.verify(access, "correct horse battery"), true);
+  assert.equal(await A.verify(access, "second on"), false);
+});
+
 test("access.json holds only a salted hash", () => {
   const a = JSON.parse(readFileSync(new URL("../site/access.json", import.meta.url), "utf8"));
   for (const k of ["hash", "iter", "salt"]) assert.ok(a[k] != null, k);
-  assert.ok(Object.keys(a).every(k => ["hash", "iter", "salt", "set", "epoch", "locked"].includes(k))); assert.ok(a.iter >= 300000);
+  assert.ok(Object.keys(a).every(k => ["hash", "iter", "salt", "set", "epoch", "locked", "also"].includes(k))); assert.ok(a.iter >= 300000);
+  for (const h of a.also || []) assert.ok(Object.keys(h).every(k => ["hash", "iter", "salt", "set"].includes(k)) && h.iter >= 300000);
 });

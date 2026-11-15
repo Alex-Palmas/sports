@@ -21,7 +21,11 @@
   /** True when the password matches the stored hash ({ salt, iter, hash }). */
   async function verify(access, password) {
     if (!access?.hash || !access?.salt) return false;
-    return same(await hashPassword(String(password || ""), access.salt, access.iter || ITER), access.hash);
+    // the main password, or any extra one in "also" (scripts/set-password.mjs --add)
+    for (const h of [access, ...(Array.isArray(access.also) ? access.also : [])]) {
+      if (h?.hash && h?.salt && same(await hashPassword(String(password || ""), h.salt, h.iter || ITER), h.hash)) return true;
+    }
+    return false;
   }
 
   const api = { hashPassword, verify, ITER };
@@ -43,7 +47,7 @@
   } catch {}
 
   const fetchAccess = () => fetch(`access.json?t=${Date.now()}`, { cache: "no-store" }).then(r => r.ok ? r.json() : null);
-  const stamp = a => `${a.hash}|${a.epoch || 0}`;
+  const stamp = a => `${[a.hash, ...(a.also || []).map(h => h.hash)].join(",")}|${a.epoch || 0}`;
   const saved = () => { try { return JSON.parse(sessionStorage.getItem(SESSION) || "null"); } catch { return null; } };
   let unlocked = false;
 
