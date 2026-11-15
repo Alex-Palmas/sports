@@ -69,3 +69,6 @@ Tick **Auto bet** on the Edge Board to let PropLab place bets for you.
 
 ### Bet window (2026-11-13)
 Auto bet only places a pick within **2 hours of the game's start** (Settings → Auto bet bot → "Bet only within (hours before the game)", 0.25–48 h). Picks for later games wait on the board; the bot status shows when the first window opens. Picks with no known start time are not bet.
+
+### Always-on reinvesting (2026-11-15)
+Auto bet looks for new picks on the board (your filters) every minute and re-reads Kalshi cash + open bets every 2 minutes (was 5). When bets settle or cash goes up (payout, deposit), it logs it, clears the "limit reached" pause and retry counts, and bets the freed money on the next picks. Network, relay, Kalshi 5xx or timeout errors now pause it until the next minute instead of switching it off; it stops only for key / permission / order-placement problems.
