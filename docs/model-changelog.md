@@ -227,3 +227,7 @@ No change.
 - WNBA (scripts/wnba-players.mjs, wnba-props-model.mjs): 10,642 prop markets (points, rebounds, assists, 3-pointers), 24 weeks, May 8–Oct 31, ESPN logs for 207 players, earlier games only.
   Calibration close to the price (10–30¢ hit 22.2% vs 20.4%; 70–90¢ 82.3% vs 78.6%). Forward log loss: mid 0.59291; refit of the price alone 0.59372 (worse); + stat type / hit rate / average vs line / last 3 / minutes trend all worse. Board rule: no picks leave-one-week-out; forward picks lose (e.g. hit rate EV ≥ 5%: −14%).
 No edge. Nothing added.
+
+## 2026-11-15 — 2%+ EV picks over a full year (scripts/ev-direct.mjs)
+Kalshi's archive (scripts/kalshi-archive.mjs) added last NBA season: 96,861 settled props with a pre-tip quote, 210 game days, 2025-11-18 … 2026-11-15. Board rule replayed straight from Kalshi's results (no ESPN join), Conservative layer refit each day on earlier days only:
+EV ≥ 0%: 795 picks, −2.3% (90% −7.6% … +3.1%); ≥ 1%: 576, −0.7%; ≥ 2%: 358, −3.0% (−13.7% … +8.6%; 2–5%: 314 picks −4.5%); ≥ 5%: 44, +9.9% (−22% … +39%, too few). Won 46.6% vs 49.7% expected at ≥ 2%. No edge; the minimum EV stays at 25%.
