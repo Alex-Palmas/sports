@@ -16,7 +16,7 @@ const SINCE = "2026-09-08", MON = { JAN: "01", FEB: "02", MAR: "03", APR: "04", 
 const sleep = ms => new Promise(r => setTimeout(r, ms)); let last = 0;
 async function get(url) {
   for (let i = 0; i < 7; i++) {
-    const w = last + 110 - Date.now(); if (w > 0) await sleep(w); last = Date.now();
+    const w = last + 60 - Date.now(); if (w > 0) await sleep(w); last = Date.now();
     const r = await fetch(url).catch(() => null);
     if (r?.ok) return r.json();
     if (r && r.status !== 429 && r.status < 500) throw new Error(`${r.status} ${url}`);
@@ -49,7 +49,9 @@ if (mode === "discover") {
 }
 
 if (mode === "collect") {
-  const series = read(".cache/nfl-series.json", []), db = read(".cache/nfl-deep.json", { events: {} }), tips = {};
+  // --part i/n: this process takes every n-th series and writes its own file (run several at once)
+  const [pi, pn] = (process.argv[process.argv.indexOf("--part") + 1] || "0/1").split("/").map(Number), OUTF = pn > 1 ? `.cache/nfl-deep-${pi}.json` : ".cache/nfl-deep.json";
+  const series = read(".cache/nfl-series.json", []).filter((_, i) => i % pn === pi), db = read(OUTF, { events: {} }), tips = {};
   const skip = new Set(["KXNFLPASSYDS", "KXNFLRSHYDS", "KXNFLRECYDS", "KXNFLREC", "KXNFLPASSTDS"]);   // already in kalshi-history-nfl.json
   const kick = async date => {
     if (tips[date]) return tips[date];
@@ -85,7 +87,7 @@ if (mode === "collect") {
         }
         db.events[e.event_ticker] = rec; added++;
       }
-      cursor = j.cursor; writeFileSync(".cache/nfl-deep.json", JSON.stringify(db));
+      cursor = j.cursor; writeFileSync(OUTF, JSON.stringify(db));
     } while (cursor && !stop);
     console.log(s.series, "added", added);
   }
@@ -95,7 +97,7 @@ if (mode === "collect") {
 export { fee, read };
 
 if (mode === "report") {
-  const db = read(".cache/nfl-deep.json", { events: {} }), H = read(".cache/kalshi-history-nfl.json", { events: {} });
+  const db = { events: Object.assign({}, read(".cache/nfl-deep.json", { events: {} }).events, ...Array.from({ length: 8 }, (_, i) => read(`.cache/nfl-deep-${i}.json`, { events: {} }).events)) }, H = read(".cache/kalshi-history-nfl.json", { events: {} });
   const week = d => Math.floor((Date.parse(d) - Date.parse(SINCE)) / (7 * 86400e3));
   const rows = [];
   const add = (series, ev, date, m) => { if (m.bid == null || m.ask == null || m.ask - m.bid > 0.10) return; const mid = (m.bid + m.ask) / 2; if (mid <= 0.02 || mid >= 0.98) return;
