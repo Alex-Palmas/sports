@@ -128,6 +128,7 @@ if (mode === "report") {
   }
   const scored = rules.map(u => { const B = u.R.map(r => bet(r, u.side(r))), D = B.filter((_, i) => !isHold(u.R[i])), Ho = B.filter((_, i) => isHold(u.R[i]));
     return { name: u.name, nD: D.length, rD: roi(D), nH: Ho.length, rH: roi(Ho), B }; });
+  if (process.argv.includes("--pooled")) for (const s of scored.filter(s => s.name.startsWith("ALL"))) console.log(`  ${s.name.padEnd(64)} disc ${String(s.nD).padStart(6)} ${(s.rD * 100).toFixed(1).padStart(6)}% | hold ${String(s.nH).padStart(6)} ${(s.rH * 100).toFixed(1).padStart(6)}%`);
   const cand = scored.filter(s => s.nD >= 60 && s.rD > 0.05 && s.nH >= 30).sort((a, b) => b.rD - a.rD);
   console.log(`\n${scored.length} rules scored. ${cand.length} look good in discovery (≥60 bets, ROI > +5%, ≥30 holdout bets).`);
   const posH = cand.filter(s => s.rH > 0).length; console.log(`Of those, ${posH} are still positive in the 4 holdout weeks (chance alone would give about half).`);
