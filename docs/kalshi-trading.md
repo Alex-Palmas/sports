@@ -72,3 +72,6 @@ Auto bet only places a pick within **2 hours of the game's start** (Settings →
 
 ### Always-on reinvesting (2026-11-15)
 Auto bet looks for new picks on the board (your filters) every minute and re-reads Kalshi cash + open bets every 2 minutes (was 5). When bets settle or cash goes up (payout, deposit), it logs it, clears the "limit reached" pause and retry counts, and bets the freed money on the next picks. Network, relay, Kalshi 5xx or timeout errors now pause it until the next minute instead of switching it off; it stops only for key / permission / order-placement problems.
+
+### Top-ups (2026-11-15)
+A pick that already has money in it stays eligible while it is still on the filtered Edge Board: the bot tops it up to one bet's worth (the "Each bet" %). Money already in a pick = what the bot spent on it, or your Kalshi position in that market (so your own manual bets count), whichever is more. It adds only when at least one more contract fits, and never beyond one bet's worth per pick.

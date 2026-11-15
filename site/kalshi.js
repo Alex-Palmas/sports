@@ -184,13 +184,13 @@
   }
   /** Money in open (unsettled) positions, summed from Kalshi's positions (all shards). */
   async function openExposure() {
-    let cursor = "", total = 0, n = 0;
+    let cursor = "", total = 0, n = 0; const byTk = {};
     for (let page = 0; page < 20; page++) {
       const j = await call("GET", `/portfolio/positions?count_filter=position&limit=1000${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
-      for (const m of j.market_positions || []) { const x = Math.abs(+(m.market_exposure_dollars ?? 0)) || 0; total += x; if (x) n++; }
+      for (const m of j.market_positions || []) { const x = Math.abs(+(m.market_exposure_dollars ?? 0)) || 0; total += x; if (x) { n++; if (m.ticker) byTk[m.ticker] = +((byTk[m.ticker] || 0) + x).toFixed(2); } }
       cursor = j.cursor; if (!cursor) break;
     }
-    return { total: +total.toFixed(2), positions: n };
+    return { total: +total.toFixed(2), positions: n, byTk };   // byTk: money already in each market (your own bets count too)
   }
   const usdS = x => `$${(+x).toFixed(2)}`;
   const describeBalances = info => info.shards.length > 1 ? info.shards.map(x => `${usdS(x.balance)} on shard ${x.index}`).join(", ") : usdS(info.total);
@@ -289,7 +289,7 @@
       </select></label>
       <p class="pl-sub">Takes effect right away on the Edge Board and for Auto bet. On real Kalshi results neither model found a reliable edge on NBA props (an earlier "NO on overs" edge came from a backtest bug, fixed 2026-11-13), so expect few or no picks.</p>`; })() : ""}
       <h3 class="set-h">Auto bet bot</h3>
-      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. It looks for new picks every minute and checks your Kalshi cash and open bets every 2 minutes: your account = cash + money in open bets. Each bet is a share of the account (capped by "Max per order", at least one contract), and the bot keeps the money in open bets under its limit, so when bets settle the freed cash goes into new picks. One bet per pick, placed only in the last hours before the game (default 2 h). A network or Kalshi hiccup only pauses it until the next minute; it stops only if your key or order placement stops working. It only runs while PropLab is open.</p>
+      <p class="pl-sub">When "Auto bet" is ticked on the Edge Board, the bot bets on every Kalshi pick the board is showing (with its current filters), and on new ones as they appear. It looks for new picks every minute and checks your Kalshi cash and open bets every 2 minutes: your account = cash + money in open bets. Each bet is a share of the account (capped by "Max per order", at least one contract), and the bot keeps the money in open bets under its limit, so when bets settle the freed cash goes into new picks. Each pick gets one bet's worth: if it has less in it (a partial fill, or a smaller bet you placed yourself), the bot tops it up while the pick is still on the board. Bets are placed only in the last hours before the game (default 2 h). A network or Kalshi hiccup only pauses it until the next minute; it stops only if your key or order placement stops working. It only runs while PropLab is open.</p>
       <div class="tf-grid">
         <label>Each bet (% of account) <input id="setBotBetPct" type="number" min="0.1" max="100" step="0.1" value="${esc(s.botBetPct ?? 1)}"/></label>
         <label>Max in open bets (% of account) <input id="setBotPct" type="number" min="1" max="100" step="1" value="${esc(s.botPct ?? 50)}"/></label>
