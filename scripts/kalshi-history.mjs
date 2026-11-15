@@ -18,6 +18,7 @@ const LEAGUES = {
   nba: { espn: "basketball/nba", series: { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3", KXNBAPR: "pr", KXNBAPA: "pa", KXNBARA: "ra", KXNBAPRA: "pra", KXNBASTL: "stl", KXNBABLK: "blk" } },
   mlb: { espn: "baseball/mlb", series: { KXMLBHIT: "hits", KXMLBHR: "hr", KXMLBKS: "so", KXMLBTB: "tb", KXMLBHRR: "hrr" } },
   nhl: { espn: "hockey/nhl", series: { KXNHLPTS: "pts", KXNHLGOAL: "g", KXNHLAST: "ast", KXNHLSAVES: "saves", KXNHLSAVE: "saves" } },
+  wnba: { espn: "basketball/wnba", series: { KXWNBAPTS: "pts", KXWNBAREB: "reb", KXWNBAAST: "ast", KXWNBA3PT: "fg3", KXWNBAPRA: "pra", KXWNBAPR: "pr", KXWNBAPA: "pa", KXWNBARA: "ra" } },
   nfl: { espn: "football/nfl", series: { KXNFLPASSYDS: "pass_yds", KXNFLRSHYDS: "rush_yds", KXNFLRECYDS: "rec_yds", KXNFLREC: "rec", KXNFLPASSTDS: "pass_td", KXNFLANYTD: "td" } },
 };
 const LEAGUE = (() => { const i = process.argv.indexOf("--league"); return i > 0 ? process.argv[i + 1] : "nba"; })();
@@ -60,9 +61,12 @@ async function main() {
     let cursor = "", n = 0, stop = false;
     do {
       const j = await get(`${API}/events?series_ticker=${series}&status=settled&with_nested_markets=true&limit=100${cursor ? `&cursor=${cursor}` : ""}`);
+      // Kalshi doesn't list events strictly by date: stop only when a whole page is older than --since
+      const pageDates = (j.events || []).map(e => eventDate(e.event_ticker)).filter(Boolean);
+      if (pageDates.length && pageDates.every(d => d < since)) stop = true;
       for (const e of j.events || []) {
         const date = eventDate(e.event_ticker); if (!date) continue;
-        if (date < since) { stop = true; continue; }
+        if (date < since) continue;
         if (db.events[e.event_ticker]?.v === 2) continue;
         const ms = (e.markets || []).filter(m => m.result === "yes" || m.result === "no").map(m => ({ tk: m.ticker, ...parseSub(m.yes_sub_title), strike: m.floor_strike ?? (parseSub(m.yes_sub_title)?.n ?? 1) - 0.5, y: m.result === "yes" ? 1 : 0, value: num(m.expiration_value), tv: num(m.volume_fp) })).filter(m => m.name);
         if (!ms.length) continue;
