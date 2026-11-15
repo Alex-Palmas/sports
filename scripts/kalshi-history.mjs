@@ -61,9 +61,12 @@ async function main() {
     let cursor = "", n = 0, stop = false;
     do {
       const j = await get(`${API}/events?series_ticker=${series}&status=settled&with_nested_markets=true&limit=100${cursor ? `&cursor=${cursor}` : ""}`);
+      // Kalshi doesn't list events strictly by date: stop only when a whole page is older than --since
+      const pageDates = (j.events || []).map(e => eventDate(e.event_ticker)).filter(Boolean);
+      if (pageDates.length && pageDates.every(d => d < since)) stop = true;
       for (const e of j.events || []) {
         const date = eventDate(e.event_ticker); if (!date) continue;
-        if (date < since) { stop = true; continue; }
+        if (date < since) continue;
         if (db.events[e.event_ticker]?.v === 2) continue;
         const ms = (e.markets || []).filter(m => m.result === "yes" || m.result === "no").map(m => ({ tk: m.ticker, ...parseSub(m.yes_sub_title), strike: m.floor_strike ?? (parseSub(m.yes_sub_title)?.n ?? 1) - 0.5, y: m.result === "yes" ? 1 : 0, value: num(m.expiration_value), tv: num(m.volume_fp) })).filter(m => m.name);
         if (!ms.length) continue;
