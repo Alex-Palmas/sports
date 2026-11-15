@@ -186,3 +186,12 @@ Daily tuning log written by `scripts/auto-tune.mjs` (run each day by a scheduled
   - The Settings wording is updated.
   - On today's slate there are 0 picks at EV ≥ 25%, so Auto bet places nothing.
 - **What's still valid:** the NFL, NHL and MLB player-prop studies and the game-line studies (college, tennis, NBA totals) used Kalshi's own results without this matching, so they stand. All of them showed no edge. The entries from 2026-11-12 about the site-players fit, the 25% bracket and the EV brackets are **void**.
+
+## 2026-11-15 — Re-test of other sports after the NBA backtest fix
+The 2026-11-13 bug (matching Kalshi markets to ESPN logs by final stat) was only in `scripts/market-backtest.mjs` (NBA props). The other studies score on Kalshi's own `result` (`props-study.mjs`, `college-lines.mjs` + `lines-backtest.mjs`, `tennis-lines.mjs`, `market-survey.mjs`), so their earlier conclusions stand. Re-run on refreshed data:
+- NFL props (31,964 markets, 10 weeks): price beats fit; EV ≥ 2% −9.3% leave-one-week-out vs +7.2% forward (inconsistent); nothing ≥ 10%.
+- NHL props (30,393 markets, 40 days): fit ≈ price (0.45589 vs 0.45606); no picks leave-one-day-out; 21 forward picks ≥ 10% (+13%) — too few.
+- MLB props (61,001 markets, last season): price better; ≥ 2% −3.3%.
+- Game lines after fees: NBA total unders +1.3% / +4.0% (177 games), NCAAMB unders −0.7% / +8.6%, NCAAF unders −9.5% / +4.6%; no spread rule positive in both halves except tiny NBA big-favorite/underdog splits.
+- Tennis: ATP underdogs +1.8% / +7.1% (468 events); everything else negative or inconsistent.
+No change to the board. Watch-only: NBA total unders, ATP underdogs (small samples, positive in both halves).
