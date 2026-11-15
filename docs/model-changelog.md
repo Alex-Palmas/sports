@@ -221,3 +221,9 @@ No change.
   gusts ≥ 25 mph or rain ≥ 2 mm (set before looking): 21 games, ROI +10.5% (game bootstrap 90% −2% … +22%), weeks 0–4 +9.9% (12), weeks 5+ +11.1% (9);
   rain ≥ 2 mm: 9 games +20.3% (+2% … +38%); calm outdoor: 32 games −6.9%; indoor: 41 games −4.2%. Game-total unders in bad weather: −3.3% (totals already adjust).
   CANDIDATE ONLY: 21 games, range includes 0, and it uses actual weather (betting would use the forecast). Next: paper-track with pre-game forecasts through December–January, when bad-weather games are common. Not on the board.
+
+## 2026-11-15 — WNBA props (2026 season) and Kalshi's archive
+- Kalshi moves older settled markets to its historical API: the events listing keeps the event, but nested markets come back empty. `scripts/kalshi-archive.mjs` fills them in (/historical/markets + per-market historical candlesticks, pre-game volume only). `kalshi-history.mjs` also no longer stops paging at the first out-of-order old event. NBA/NFL/NHL caches checked: complete.
+- WNBA (scripts/wnba-players.mjs, wnba-props-model.mjs): 10,642 prop markets (points, rebounds, assists, 3-pointers), 24 weeks, May 8–Oct 31, ESPN logs for 207 players, earlier games only.
+  Calibration close to the price (10–30¢ hit 22.2% vs 20.4%; 70–90¢ 82.3% vs 78.6%). Forward log loss: mid 0.59291; refit of the price alone 0.59372 (worse); + stat type / hit rate / average vs line / last 3 / minutes trend all worse. Board rule: no picks leave-one-week-out; forward picks lose (e.g. hit rate EV ≥ 5%: −14%).
+No edge. Nothing added.
