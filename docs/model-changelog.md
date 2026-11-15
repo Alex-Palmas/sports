@@ -210,3 +210,14 @@ ESPN game logs for all 789 rostered QB/RB/WR/TE (this season + last), joined to 
 - Log loss, forward weeks: Kalshi mid 0.48238; + last-10 hit rate 0.48227; + average vs line 0.48222; + last 3 games 0.48240; + opponent defense vs position 0.48266; all signals 0.48286. Player stats add ~0.0001 at best; coefficients on the signals are ~0.04.
 - Edge Board rule after fees: every variant loses, or wins one half and loses the other (e.g. average vs line, EV ≥ 3%, leave-one-week-out: +22% / −51%). Nothing reaches EV ≥ 25%.
 No change.
+
+## 2026-11-15 — More NFL tests: early prices, volume, teammate out, totals consistency, combos, weather
+- Early prices (scripts/nfl-early.mjs, nfl-early-study.mjs): prop quotes 96 h … 1 h before kickoff. At every time, player stats add nothing over that price out of sample, and the board rule's few picks are inconsistent. Early prices are not softer.
+- Thin markets: an apparent big edge by market volume was a LEAK — total volume includes in-game trading, which depends on the outcome. With pre-game volume only, nothing. (Never use `volume_fp` / total volume as a feature.)
+- Key teammate out (no log for the game, played the week before): coefficient ≈ 0, picks lose. Priced in.
+- Team totals vs game total agree within ~0.5 pt; halves sum ~1 pt under the full game (overtime). Betting the gaps: nothing.
+- Combos/parlays: no settled NFL combo history this season.
+- WEATHER (scripts/nfl-weather.mjs, nfl-weather-study.cjs; Open-Meteo archive at kickoff): passing-game UNDERS near 50¢ (pass yds, attempts, completions, rec yds, longest reception), per game:
+  gusts ≥ 25 mph or rain ≥ 2 mm (set before looking): 21 games, ROI +10.5% (game bootstrap 90% −2% … +22%), weeks 0–4 +9.9% (12), weeks 5+ +11.1% (9);
+  rain ≥ 2 mm: 9 games +20.3% (+2% … +38%); calm outdoor: 32 games −6.9%; indoor: 41 games −4.2%. Game-total unders in bad weather: −3.3% (totals already adjust).
+  CANDIDATE ONLY: 21 games, range includes 0, and it uses actual weather (betting would use the forecast). Next: paper-track with pre-game forecasts through December–January, when bad-weather games are common. Not on the board.

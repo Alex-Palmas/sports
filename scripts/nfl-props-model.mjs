@@ -40,6 +40,18 @@ const defFactor = (opp, pos, s, date) => {   // team's allowed per-player averag
   const lgAvg = tot / cnt, m = mine.reduce((a, x) => a + x.v, 0) / mine.length; return lgAvg > 0 ? Math.log(((m * mine.length + lgAvg * 20) / (mine.length + 20)) / lgAvg) : 0; };
 const defCache = new Map(), def = (...a) => { const k = a.join("|"); if (!defCache.has(k)) defCache.set(k, defFactor(...a)); return defCache.get(k); };
 const ALIAS = { WSH: ["WAS", "WSH"], LAR: ["LA", "LAR"], JAX: ["JAC", "JAX"] };
+// key teammate out: a same-team, same-group teammate with more volume over the last 3 games who played the previous
+// game but has no log for this one (inactives are public ~90 min before kickoff, before the last pre-game quote)
+const byTeam = new Map(); for (const p of P.values()) (byTeam.get(p.team) || byTeam.set(p.team, []).get(p.team)).push(p);
+const grp = pos => pos === "QB" ? "QB" : pos === "RB" || pos === "FB" ? "RB" : "WRTE";
+const volOf = (l, g) => g === "QB" ? n(l.raw.passingAttempts) : g === "RB" ? n(l.raw.rushingAttempts) + n(l.raw.receivingTargets) : n(l.raw.receivingTargets);
+const addD = (d, k) => new Date(Date.parse(d) + k * 86400e3).toISOString().slice(0, 10);
+const mateOut = (p, date) => { const g = grp(p.pos), mine = p.logs.filter(l => l.date < date).slice(0, 3), myVol = mine.reduce((a, l) => a + volOf(l, g), 0) / Math.max(1, mine.length);
+  for (const q of byTeam.get(p.team) || []) { if (q === p || grp(q.pos) !== g) continue;
+    const prev = q.logs.filter(l => l.date < date); if (!prev.length || Date.parse(date) - Date.parse(prev[0].date) > 9 * 86400e3) continue;   // played the previous week
+    const v = prev.slice(0, 3).reduce((a, l) => a + volOf(l, g), 0) / Math.min(3, prev.length);
+    if (v > myVol && v >= (g === "QB" ? 20 : 5) && !q.logs.some(l => l.date === date || l.date === addD(date, 1))) return 1; }
+  return 0; };
 const rows = []; let noPlayer = 0;
 for (const [k, e] of Object.entries(ev)) {
   const f = STAT[e.series]; if (!f) continue;
@@ -57,11 +69,14 @@ for (const [k, e] of Object.entries(ev)) {
     const suf = k.split("-")[1].slice(7), mineT = ALIAS[p.team] || [p.team], rest = mineT.reduce((x, c) => x.replace(c, ""), suf);
     const opp = [...new Set(P.values())].length && [...new Set([...P.values()].map(q => q.team))].find(t => t !== p.team && (ALIAS[t] || [t]).some(c => rest === c));
     const dF = opp ? def(opp, p.pos, e.series, e.date) : 0;
-    rows.push({ dF, s: e.series, ev: k, w: week(e.date), y: m.y, bid: m.bid, ask: m.ask, mid, strike, pEmp, pNorm, pRecent, zCur: (muCur - strike) / Math.max(sd, 1), n: xs.length, key: `${k}|${norm(name)}` });
+    rows.push({ mate: mateOut(p, e.date), vol: m.vol ?? 0, dF,   // pre-game volume only: total volume includes in-game trading, which depends on the outcome
+      s: e.series, ev: k, w: week(e.date), y: m.y, bid: m.bid, ask: m.ask, mid, strike, pEmp, pNorm, pRecent, zCur: (muCur - strike) / Math.max(sd, 1), n: xs.length, key: `${k}|${norm(name)}` });
   }
 }
+{ const vi = process.argv.indexOf("--vol"); if (vi > 0) { const v = rows.map(r => r.vol).sort((a, b) => a - b), t1 = v[Math.floor(v.length / 3)], t2 = v[Math.floor(2 * v.length / 3)], want = process.argv[vi + 1];
+  const keep = rows.filter(r => want === "low" ? r.vol <= t1 : want === "high" ? r.vol > t2 : r.vol > t1 && r.vol <= t2); rows.length = 0; rows.push(...keep); console.log(`volume subset ${want}: ${rows.length} markets (terciles at ${Math.round(t1)} / ${Math.round(t2)} contracts)`); } }
 const weeks = [...new Set(rows.map(r => r.w))].sort((a, b) => a - b);
-console.log(`opponent found for ${rows.filter(r => r.dF !== 0).length} of ${rows.length} markets`);
+console.log(`key teammate out in ${rows.filter(r => r.mate).length} markets; opponent found for ${rows.filter(r => r.dF !== 0).length} of ${rows.length} markets`);
 console.log(`${rows.length} NFL prop markets with a pre-game quote and ≥4 earlier games (${new Set(rows.map(r => r.key)).size} player-games, ${weeks.length} weeks; ${noPlayer} markets without an ESPN match)`);
 console.log("by series:", Object.entries(rows.reduce((a, r) => (a[r.s] = (a[r.s] || 0) + 1, a), {})).map(([k, v]) => `${k.replace("KXNFL", "")} ${v}`).join(", "));
 
@@ -72,6 +87,7 @@ const MODELS = {
   "price + average vs line": r => [1, lg(r.mid), lg(r.pNorm) - lg(r.mid)],
   "price + recent 3 games": r => [1, lg(r.mid), lg(r.pRecent) - lg(r.mid)],
   "price + opponent defense": r => [1, lg(r.mid), r.dF],
+  "price + key teammate out": r => [1, lg(r.mid), r.mate, r.mate * lg(r.mid)],
   "price + all player signals": r => [1, lg(r.mid), lg(r.pEmp) - lg(r.mid), lg(r.pNorm) - lg(r.mid), lg(r.pRecent) - lg(r.mid), r.zCur, r.dF],
 };
 const out = {};
