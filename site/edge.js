@@ -257,7 +257,10 @@
   const todayKey = () => dayKey(new Date().toISOString());
   const pickKey = x => `${x.lg}|${x.p.id}|${x.stat}|${x.r.best.line}|${x.r.best.side}|${dayKey(x.p.gameDate)}`;
   const money = x => `$${(+x).toFixed(2)}`;
-  const ACCOUNT_MS = 5 * 60e3;
+  const ACCOUNT_MS = 2 * 60e3;   // cash + open bets re-checked every 2 minutes, so money from settled bets is reinvested quickly
+  // Only a broken key / permission / order placement turned off stops the bot. Anything else (network, relay, Kalshi 5xx,
+  // a timeout) pauses it until the next minute's check, so it keeps betting all day without being switched back on.
+  const fatalErr = m => /\b40[13]\b|unauthori[sz]ed|forbidden|signature|API key|Turn on order placement|can't sign|private key/i.test(m || "");
   let botBusy = false;
   /** One line saying what the bot is doing right now (or why it isn't betting). */
   function botStatus(text) { const st = botState(); if (st.status?.text !== text) { st.status = { at: Date.now(), text }; saveBot(st); } }
@@ -273,7 +276,7 @@
       const k = pickKey(x); return !st.placed?.[k] && (st.tries?.[k] || 0) < 3;
     }).sort((a, b) => b.r.best.ev - a.r.best.ev);
   }
-  /** Cash and open bets from Kalshi (refreshed every 5 minutes, or when forced). */
+  /** Cash and open bets from Kalshi (refreshed every 2 minutes, or when forced). */
   async function refreshAccount(K, force) {
     let st = botState();
     if (!force && st.acct && Date.now() - st.acct.at < ACCOUNT_MS) return st.acct;
@@ -282,7 +285,8 @@
     const prev = st.acct;
     st.acct = { at: Date.now(), cash: info.total, open: open.total, positions: open.positions };
     // money came back (bets settled): say so and lift the "limit reached" pause
-    if (prev && open.total < prev.open - 0.5) { botLog(st, `Bets settled: ${money(prev.open - open.total)} back from open bets · cash ${money(info.total)}`); st.full = false; }
+    if (prev && open.total < prev.open - 0.5) { botLog(st, `Bets settled: ${money(prev.open - open.total)} back from open bets · cash ${money(info.total)}`); st.full = false; st.tries = {}; }
+    else if (prev && info.total > prev.cash + 0.5) { botLog(st, `More cash: ${money(info.total)} available (was ${money(prev.cash)})`); st.full = false; st.tries = {}; }   // deposit or payout
     saveBot(st);
     return st.acct;
   }
@@ -341,19 +345,25 @@
           st = botState();
           if (/\b429\b|too many requests/i.test(e.message)) { botLog(st, "Kalshi rate limit: pausing until the next check"); saveBot(st); break; }
           (st.tries ||= {})[k] = (st.tries[k] || 0) + 1;
-          const soft = /Not placed|No edge|No live price|isn't open|doesn't buy|No fill|No Kalshi market/i.test(e.message);
-          if (!soft) { st.on = false; st.stopped = e.message; botLog(st, `Stopped: ${e.message}`); saveBot(st); break; }
+          if (fatalErr(e.message)) { st.on = false; st.stopped = e.message; botLog(st, `Stopped: ${e.message}`); saveBot(st); break; }
+          const soft = /Not placed|No edge|No live price|isn't open|doesn't buy|No fill|No Kalshi market|\b400\b|insufficient/i.test(e.message);
+          if (!soft) { botLog(st, `Paused: ${e.message} · retrying at the next check`); saveBot(st); botStatus(`Paused for a minute: ${e.message}`); break; }
           botLog(st, `Skipped ${x.p.name} ${x.label}: ${e.message}`); saveBot(st);
         }
       }
       { const z = sizing(acct, K.settings());
         if (short) botStatus(z.cap - acct.open <= acct.cash   // the limit binds before the cash does
           ? `At your limit: ${money(acct.open)} in open bets vs ${money(z.cap)} allowed (${z.pct}% of your ${money(z.value)} account). It bets again as bets settle, or raise "Max in open bets" in Settings.`
-          : `Out of cash: ${money(acct.cash)} available. It bets again when bets settle or you add money (it re-checks every 5 minutes, or tap Check now).`);
+          : `Out of cash: ${money(acct.cash)} available. It bets again when bets settle or you add money (it re-checks every 2 minutes, or tap Check now).`);
         else if (placed) botStatus(`Placed ${placed} bet${placed === 1 ? "" : "s"} this check · ${money(z.room)} of room left.`); }
       if (short) { st = botState(); const z = sizing(acct, K.settings()); if (st.on && !st.full) { st.full = true; botLog(st, `Limit reached: ${money(acct.open)} in open bets (limit ${money(z.cap)} = ${z.pct}% of ${money(z.value)}), cash ${money(acct.cash)}. New picks get bet as open bets settle.`); saveBot(st); } }
-    } catch (e) { st = botState(); st.on = false; st.stopped = e.message; botLog(st, `Stopped: ${e.message}`); saveBot(st); }
-    finally { botBusy = false; }
+    } catch (e) {
+      st = botState();
+      if (fatalErr(e.message)) { st.on = false; st.stopped = e.message; botLog(st, `Stopped: ${e.message}`); }
+      else { botLog(st, `Paused: ${e.message} · retrying at the next check`); botStatus(`Paused for a minute: ${e.message}`); }
+      saveBot(st);
+    }
+    finally { botBusy = false; st = botState(); st.lastRun = Date.now(); saveBot(st); }
   }
   function botSummary() {
     const st = botState(), ks = window.PropKalshi?.settings?.() || {};
@@ -361,7 +371,7 @@
     if (!st.on) return st.stopped ? `Auto bet stopped: ${esc(st.stopped)}` : `Auto bet is off. When on: ${betPct}% of your account per bet, at most ${pct}% in open bets, max ${money(ks.maxOrder ?? 25)} per bet.`;
     if (!st.acct) return `Auto bet on · ${betPct}% of account per bet, at most ${pct}% in open bets (checking your account…)`;
     const z = sizing(st.acct, ks), mins = Math.max(0, Math.round((Date.now() - st.acct.at) / 60e3));
-    return `${st.status?.text ? `<b>${esc(st.status.text)}</b><br>` : ""}Auto bet on · ${money(st.acct.open)} in open bets of ${money(z.cap)} allowed (${pct}% of ${money(z.value)}) · cash ${money(st.acct.cash)} · ${z.unit < 1 ? "1 contract" : money(z.unit)} per bet · ${st.bets || 0} bet${st.bets === 1 ? "" : "s"} today · account checked ${mins ? `${mins} min ago` : "just now"}`;
+    return `${st.status?.text ? `<b>${esc(st.status.text)}</b><br>` : ""}Auto bet on · ${money(st.acct.open)} in open bets of ${money(z.cap)} allowed (${pct}% of ${money(z.value)}) · cash ${money(st.acct.cash)} · ${z.unit < 1 ? "1 contract" : money(z.unit)} per bet · ${st.bets || 0} bet${st.bets === 1 ? "" : "s"} today · account checked ${mins ? `${mins} min ago` : "just now"}${st.lastRun ? ` · last check for new bets ${Math.round((Date.now() - st.lastRun) / 60e3) ? `${Math.round((Date.now() - st.lastRun) / 60e3)} min ago` : "just now"}` : ""}`;
   }
 
   // picks seen this session: a pick that first shows up after the board is open gets a NEW badge for 15 minutes
