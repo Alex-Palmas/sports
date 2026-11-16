@@ -226,7 +226,7 @@
       const w = edgeFit(league) ? 1 : C.marketWeight;
       const prob = fitted != null ? (side === "over" ? fitted : 1 - fitted) : mk == null ? mine : (1 - w) * mine + w * mk;
       const e = ev(prob, price);
-      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null, ya: q.ya ?? null, na: q.na ?? null, fitted: fitted != null };
+      if (!best || e > best.ev) best = { side, line: q.l, price, book: q.b, prob, model: mine, market: mk, ev: e, kelly: kelly(prob, price), vol: q.vol ?? null, tk: q.tk ?? null, href: q.href ?? null, ya: q.ya ?? null, na: q.na ?? null, op: q.op ?? null, fitted: fitted != null };
     }
     return { proj, line, probs: base, best, confidence: confidence(p, stat, league, proj, best), fairOver: base ? toAmerican(base.over) : null, fairUnder: base ? toAmerican(base.under) : null };
   }

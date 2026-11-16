@@ -13,13 +13,18 @@
   }
   const evTxt = e => (e >= 0 ? "+" : "") + (e * 100).toFixed(1) + "%";
   const fitN = () => (window.PropModel?.EDGE_FIT?.nba?.n || 28431).toLocaleString();
-  let opts = { league: "all", minEv: 0.25, grades: ["High", "Medium", "Low"], sort: "ev", marketOnly: true, q: "", show: 60, day: "all", stat: "all" };
+  let opts = { league: "all", minEv: 0.25, grades: ["High", "Medium", "Low"], sort: "ev", marketOnly: true, q: "", show: 60, day: "all", stat: "all", listed: 0 };
   // local calendar day of a game, and a friendly label for it
   const dayKey = iso => { if (!iso) return ""; const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
   const dayLabel = k => { const t = dayKey(new Date().toISOString()), tm = dayKey(new Date(Date.now() + 86400e3).toISOString());
     return k === t ? "Today" : k === tm ? "Tomorrow" : k ? new Date(k + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }) : "Date TBD"; };
   const GRADES = ["High", "Medium", "Low"];
-  const SORTS = { ev: "Best EV", conf: "Highest confidence", adj: "EV × confidence" };
+  const SORTS = { ev: "Best EV", conf: "Highest confidence", adj: "EV × confidence", fresh: "Newest listings first" };
+  // "Listed" filter: only props whose Kalshi market opened within this many hours (0 = any time)
+  const LISTED = [[0, "Any time"], [1, "Last 1 h"], [3, "Last 3 h"], [6, "Last 6 h"], [12, "Last 12 h"]];
+  // when Kalshi first listed this player's prop (earliest open time across its strikes; strikes get added later)
+  const openedAt = (p, stat) => { let t = null; for (const q of p?.market?.[stat] || []) { const x = Date.parse(q.op || ""); if (q.b === "Kalshi" && Number.isFinite(x) && (t == null || x < t)) t = x; } return t; };
+  const agoShort = t => { const m = Math.max(0, Math.round((Date.now() - t) / 60e3)); return m < 60 ? `${m} min` : m < 48 * 60 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`; };
   let gradeCounts = {}, statCounts = {};
   /** Confidence badge: grade + score, with the reasons in the tooltip. */
   const confBadge = c => c ? `<span class="conf conf-${c.grade.toLowerCase()}" title="${esc(c.why.length ? c.why.map(w => `−${w.pts} ${w.txt}`).join("\n") : "Nothing lowers confidence")}"><i></i>${c.grade} ${c.score}</span>` : "";
@@ -66,6 +71,7 @@
         const r = M.bestBet(p, stat, lg); if (!r) continue;
         const label = sp.stats.find(s => s.key === stat)?.label || stat;
         if (opts.q && !`${p.name} ${p.team} ${label}`.toLowerCase().includes(opts.q.toLowerCase())) continue;
+        if (opts.listed > 0) { const t = openedAt(p, stat); if (!t || Date.now() - t > opts.listed * 3600e3) continue; }   // just listed on Kalshi
         const statOk = opts.stat === "all" || opts.stat === stat;
         if (r.best) { if (r.best.ev < opts.minEv) continue; }
         else if (opts.marketOnly || opts.minEv > -1) continue;   // no price means no EV: only listed with "Any" and the box unticked
@@ -78,7 +84,8 @@
         const z = r.proj.sd ? Math.abs(r.proj.mean - r.line) / Math.max(r.proj.sd, 1) : 0;
         const ev = r.best ? r.best.ev : z * 0.05 - 1, conf = r.confidence?.score ?? 0;
         const score = opts.sort === "conf" ? conf * 10 + Math.max(-1, Math.min(1, ev))   // confidence first, EV breaks ties
-          : opts.sort === "adj" && r.best ? ev * conf / 100 : ev;
+          : opts.sort === "adj" && r.best ? ev * conf / 100
+          : opts.sort === "fresh" ? (openedAt(p, stat) || 0) / 1e12 + Math.max(-1, Math.min(1, ev)) * 1e-6 : ev;
         out.push({ lg, sp, p, stat, label, r, score });
       }
     }
@@ -419,6 +426,7 @@
       <div class="edge-ctrls card">
         <label>League <select id="edgeLeague"><option value="all">All</option>${leagues.map(([k, s]) => `<option value="${k}"${opts.league === k ? " selected" : ""}>${esc(s.name)}</option>`).join("")}</select></label>
         <label>Minimum EV <select id="edgeMin">${[[-1, "Any"], [0, "0%+"], [0.02, "2%+"], [0.05, "5%+"], [0.1, "10%+"], [0.25, "25%+ (recommended)"]].map(([v, l]) => `<option value="${v}"${+opts.minEv === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label>Listed <select id="edgeListed">${LISTED.map(([v, l]) => `<option value="${v}"${+opts.listed === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
         <label>Day <select id="edgeDay"><option value="all">All days</option>${days.map(d => `<option value="${d}"${opts.day === d ? " selected" : ""}>${esc(dayLabel(d))}</option>`).join("")}</select></label>
         <label>Sort <select id="edgeSort">${Object.entries(SORTS).map(([v, l]) => `<option value="${v}"${opts.sort === v ? " selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="edge-search">Search <input id="edgeQ" type="search" placeholder="Player, team or stat" value="${esc(opts.q)}" autocomplete="off"/></label>
@@ -439,7 +447,7 @@
           ${api.avatar(p, 44, "", sp)}
           <span class="er-main">${x.isNew ? `<span class="new-badge" title="Showed up since you opened the board">NEW</span> ` : ""}<b>${esc(p.name)}</b>${p.jersey != null && p.jersey !== "" ? ` <span class="jersey">#${esc(p.jersey)}</span>` : ""} <span class="pl-sub">${esc(sp.name)} · ${esc(p.team)} ${p.home ? "vs" : "@"} ${esc(p.opp)}${p.gameDate ? ` · ${esc(when(p.gameDate))}` : ""}</span>
             <span class="er-prop">${b ? `${b.side === "over" ? "Over" : "Under"} ${b.line}` : `Line ${r.line}`} ${esc(label)} <span class="pl-sub">· projection <b>${r.proj.mean}</b></span></span>
-            ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}${movedTag(p, stat, b)}${(() => { const bp = botState().placed?.[pickKey(x)]; return bp ? `<span class="tag won" title="Placed by Auto bet">bot · ${bp.contracts}× @${bp.cents}¢</span>` : ""; })()}${b.tk && quick ? `<button type="button" class="qbet" data-qbet="${qi.push(x) - 1}" data-action="${L.action}" data-cents="${L.cents ?? ""}">Bet $${quick}</button>` : ""}</span>`; })()}` : ""}
+            ${b && b.book === "Kalshi" ? `${(() => { const L = window.PropModel.kalshiLeg(b.side, b.line, label, b); return `<span class="kleg"><span class="kleg-k">Kalshi</span> Buy <b class="kleg-${L.action.toLowerCase()}">${L.action}</b> on “${esc(p.name)} ${esc(L.contract)}”${L.cents != null ? ` · ${L.cents}¢` : ""}${(() => { const t = openedAt(p, stat); return t && Date.now() - t < 24 * 3600e3 ? ` <span class="tag" title="Kalshi listed this market ${esc(new Date(t).toLocaleString())}">listed ${agoShort(t)} ago</span>` : ""; })()}${movedTag(p, stat, b)}${(() => { const bp = botState().placed?.[pickKey(x)]; return bp ? `<span class="tag won" title="Placed by Auto bet">bot · ${bp.contracts}× @${bp.cents}¢</span>` : ""; })()}${b.tk && quick ? `<button type="button" class="qbet" data-qbet="${qi.push(x) - 1}" data-action="${L.action}" data-cents="${L.cents ?? ""}">Bet $${quick}</button>` : ""}</span>`; })()}` : ""}
             <span class="er-chips">${chips(p, r.proj, stat).map(([c, t]) => `<span class="echip ${c}">${esc(t)}</span>`).join("")}${warn ? `<span class="echip warn">Big disagreement: check news</span>` : ""}</span></span>
           <span class="er-num">${b ? `<span class="er-ev" style="color:${b.ev >= 0 ? "var(--hit)" : "var(--miss)"}">${evTxt(b.ev)}</span><span class="pl-sub">${odds(b.price)} ${esc(b.book)}</span><span class="pl-sub">we say ${pct(b.prob)}</span>${confBadge(r.confidence)}${b.book === "Kalshi" && (b.href || b.tk) && window.PropKalshi ? window.PropKalshi.link(b, "Open in Kalshi", "kalshi-link er-link") : ""}`
             : `<span class="er-ev">${pct(r.probs.over > 0.5 ? r.probs.over : r.probs.under)}</span><span class="pl-sub">${r.probs.over > 0.5 ? "over" : "under"} · fair ${odds(r.probs.over > 0.5 ? r.fairOver : r.fairUnder)}</span><span class="pl-sub">no price yet</span>${confBadge(r.confidence)}`}</span>
@@ -449,6 +457,7 @@
     q("#edgeLeague").onchange = e => { opts.league = e.target.value; save(); render(el, DATA, api); };
     q("#edgeMin").onchange = e => { opts.minEv = +e.target.value; save(); render(el, DATA, api); };
     q("#edgeDay").onchange = e => { opts.day = e.target.value; save(); render(el, DATA, api); };
+    q("#edgeListed").onchange = e => { opts.listed = +e.target.value; save(); render(el, DATA, api); };
     el.querySelectorAll("[data-estat]").forEach(b => b.onclick = () => { opts.stat = b.dataset.estat; save(); render(el, DATA, api); });
     q("#edgeSort").onchange = e => { opts.sort = e.target.value; save(); render(el, DATA, api); };
     el.querySelectorAll(".cf-chip").forEach(b => b.onclick = () => {
