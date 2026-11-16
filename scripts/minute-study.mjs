@@ -31,7 +31,9 @@ async function get(url) {
 }
 
 if (process.argv[2] === "collect") {
-  const since = arg("--since", "2026-11-03"), [pi, pn] = arg("--part", "0/1").split("/").map(Number), OUT = `.cache/nba-minutes-${pi}.json`;
+  // --ingame: the game itself instead (tip → tip + 3.5 h), saved to .cache/nba-live-<part>.json
+  const LIVE = process.argv.includes("--ingame");
+  const since = arg("--since", "2026-11-03"), [pi, pn] = arg("--part", "0/1").split("/").map(Number), OUT = `.cache/nba-${LIVE ? "live" : "minutes"}-${pi}.json`;
   const hist = read(".cache/kalshi-history.json", { events: {} }).events, db = read(OUT, {});
   const todo = Object.entries(hist).filter(([k, e]) => SERIES[e.series] && e.date >= since && e.tip && !e.archived).filter((_, i) => i % pn === pi);
   console.log(`part ${pi}: ${todo.length} events`);
@@ -39,6 +41,9 @@ if (process.argv[2] === "collect") {
     if (db[tk]) continue;
     try {
       // when the event's markets were listed: earliest open_time (from the live listing)
+      if (LIVE) { const out = {}; const c = await get(`${API}/series/${e.series}/events/${tk}/candlesticks?start_ts=${e.tip}&end_ts=${e.tip + 210 * 60}&period_interval=1`);
+        (c.market_tickers || []).forEach((m, i) => { for (const x of c.market_candlesticks?.[i] || []) { const b = x.yes_bid?.close_dollars, k = x.yes_ask?.close_dollars; if (b == null && k == null) continue; (out[m] ||= []).push([x.end_period_ts, b == null ? null : +b, k == null ? null : +k, +(x.volume_fp || 0)]); } });
+        db[tk] = out; if (Object.keys(db).length % 10 === 0) writeFileSync(OUT, JSON.stringify(db)); continue; }
       const ev = await get(`${API}/events/${tk}?with_nested_markets=true`);
       const opens = (ev.markets || ev.event?.markets || []).map(m => Date.parse(m.open_time) / 1000).filter(Boolean);
       const start = Math.max(Math.floor(Math.min(...opens, e.tip - 20 * 3600)), e.tip - 30 * 3600), out = {};
