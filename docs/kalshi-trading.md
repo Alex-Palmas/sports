@@ -78,3 +78,6 @@ A pick that already has money in it stays eligible while it is still on the filt
 
 ### "Listed" filter (2026-11-16)
 Edge Board → Listed: Any time / Last 1 h / 3 h / 6 h / 12 h shows only props whose Kalshi market first opened in that window (earliest open time across the player's strikes for that stat; `op` on each Kalshi quote, from `open_time`). Sort → "Newest listings first". Rows listed in the last 24 h carry a "listed N min/h ago" tag. Auto bet follows the board's filters, so with a Listed window it only bets newly listed props. NBA/NHL props open the morning of game day (~10–15 h before tip); NFL props ~4–5 days before kickoff.
+
+### New listings every minute (2026-11-16)
+data.json is rebuilt every 15 minutes, but the open Edge Board (and Auto bet) also asks Kalshi every minute for each prop series' open events (`PropKalshi.openEvents`, through the app's relay) and adds any market it doesn't have yet to the matching player (same name + game date; same parsing and price checks as fetch-data). Then live prices refresh and the bot runs, so a new listing that passes the board's filters can be bet within about a minute. The status line shows when it last checked and how many new markets it found. Only players already in data.json are matched (a brand-new player appears with the next rebuild).

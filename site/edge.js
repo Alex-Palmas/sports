@@ -188,6 +188,54 @@
     } catch (e) { live.err = e.message; return false; }
     finally { live.busy = false; }
   }
+  // ---------------------------------------------------------------- new Kalshi listings, every minute
+  // data.json is rebuilt every 15 minutes; between rebuilds, ask Kalshi for each prop series' open events and add
+  // any market we don't have yet to the player it belongs to (same parsing as scripts/fetch-data.mjs).
+  const KSERIES = {
+    nba: { KXNBAPTS: "pts", KXNBAREB: "reb", KXNBAAST: "ast", KXNBA3PT: "fg3", KXNBAPR: "pr", KXNBAPA: "pa", KXNBARA: "ra", KXNBAPRA: "pra", KXNBASTL: "stl", KXNBABLK: "blk" },
+    nfl: { KXNFLPASSYDS: "pass_yds", KXNFLRSHYDS: "rush_yds", KXNFLRECYDS: "rec_yds", KXNFLREC: "rec", KXNFLANYTD: "td" },
+    nhl: { KXNHLPTS: "pts", KXNHLAST: "ast", KXNHLANYGOAL: "g", KXNHLGOAL: "g" },
+  };
+  const normN = s => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\b(jr|sr|ii|iii|iv|v)\b\.?/g, "").replace(/[^a-z]/g, "");
+  const MON = { JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06", JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12" };
+  const evDate = t => { const m = /-(\d\d)([A-Z]{3})(\d\d)/.exec(t || ""); return m ? `20${m[1]}-${MON[m[2]]}-${m[3]}` : null; };
+  const etDate = iso => new Date(Date.parse(iso) - 5 * 3600e3).toISOString().slice(0, 10);   // the game's US date
+  const DISCOVER_MS = 60e3;
+  async function discoverNew(DATA) {
+    const K = window.PropKalshi, M = window.PropModel;
+    if (!K?.openEvents || live.discovering || (live.discoverAt && Date.now() - live.discoverAt < DISCOVER_MS - 5e3)) return 0;
+    live.discovering = true; live.discoverAt = Date.now();
+    let added = 0;
+    try {
+      const have = new Set(); for (const sp of Object.values(DATA.sports)) for (const p of sp.players || []) for (const qs of Object.values(p.market || {})) for (const q of qs || []) if (q.tk) have.add(q.tk);
+      for (const [lg, series] of Object.entries(KSERIES)) {
+        const sp = DATA.sports[lg]; if (!sp?.players?.length || (opts.league !== "all" && opts.league !== lg)) continue;
+        const ahead = sp.players.filter(p => p.gameDate && Date.parse(p.gameDate) > Date.now()); if (!ahead.length) continue;
+        const byName = new Map(); for (const p of ahead) byName.set(`${normN(p.name)}|${etDate(p.gameDate)}`, p);
+        for (const [ser, stat] of Object.entries(series)) {
+          const evs = await K.openEvents(ser);
+          for (const e of evs) { const d = evDate(e.event_ticker);
+            for (const m of e.markets || []) {
+              if (!m.ticker || have.has(m.ticker) || (m.strike_type && m.strike_type !== "greater")) continue;
+              const ya = parseFloat(m.yes_ask_dollars), na = parseFloat(m.no_ask_dollars);
+              if (!(ya > 0.03 && ya < 0.97 && na > 0.03 && na < 0.97) || ya + na > 1.12) continue;   // no real two-sided market yet
+              const title = String(m.yes_sub_title || m.title || ""), name = title.split(":")[0].trim(), p = byName.get(`${normN(name)}|${d}`); if (!p) continue;
+              const line = m.floor_strike != null ? +m.floor_strike : (parseFloat(title.split(":")[1]) || 1) - 0.5;
+              const q = { b: "Kalshi", k: "kalshi", l: line, o: M.toAmerican(Math.min(0.99, ya + feeOf(ya))), u: M.toAmerican(Math.min(0.99, na + feeOf(na))), t: m.expected_expiration_time || m.close_time,
+                vol: Math.round(parseFloat(m.volume_fp || 0)), tk: m.ticker, ya: +ya.toFixed(4), na: +na.toFixed(4), op: m.open_time || null, found: Date.now() };
+              q.href = K.href(q);
+              ((p.market ||= {})[stat] ||= []).push(q); if ((p.lines ||= {})[stat] == null) p.lines[stat] = line;
+              have.add(m.ticker); added++;
+            }
+          }
+        }
+      }
+      live.discovered = (live.discovered || 0) + added; live.discoverErr = null;
+      if (added) live.discoverNote = { at: Date.now(), n: added };
+    } catch (e) { live.discoverErr = e.message; }
+    finally { live.discovering = false; }
+    return added;
+  }
   /** Hard refresh: newest data.json (new markets, stats, injuries), live prices, bot's skipped picks retried. */
   const HARD_MS = 5 * 60e3;
   async function hardRefresh(auto) {
@@ -200,7 +248,8 @@
       note = newer ? "new data loaded" : "data already current";
     } catch (er) { note = `couldn't load new data (${er.message})`; }
     const D = live.data;
-    await refreshLive(D);
+    await discoverNew(D).catch(() => 0);
+    await refreshLive(D, true);
     const st = botState(); if (st.tries && Object.keys(st.tries).length) { st.tries = {}; saveBot(st); }
     if (st.on) await runBot(D);
     live.hardNote = { at: Date.now(), text: `${auto ? "auto " : ""}hard refresh: ${note}` };
@@ -216,7 +265,7 @@
       let ok;
       const betting = !!el.querySelector("[data-qbet][data-armed],[data-qbet][data-busy],.qmove");
       if (!betting && (!live.lastHard || Date.now() - live.lastHard >= HARD_MS)) { await hardRefresh(true); ok = !live.err; }   // every 5 minutes
-      else { ok = await refreshLive(live.data); if (botOn && ok) await runBot(live.data); }
+      else { await discoverNew(live.data).catch(() => 0); ok = await refreshLive(live.data, true); if (botOn && ok) await runBot(live.data); }   // new listings, then prices, then bets
       if (botOn && !ok) botStatus(`Can't check prices right now${live.err ? ` (${live.err})` : ""}, so no bets this minute. In the PropLab Mac app this fixes itself; on the website your relay must be running.`);
       const DATA = live.data;
       if (el.hidden) return;
@@ -433,7 +482,7 @@
         <label class="check"><input type="checkbox" id="edgeMarket"${opts.marketOnly ? " checked" : ""}/> Only props with a price to bet</label>
       </div>
       ${accuracy(DATA)}
-      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${liveHidden.size ? ` · ${Math.ceil(liveHidden.size / 2) || 1} game${liveHidden.size > 2 ? "s" : ""} in progress hidden (no in-game bets)` : ""}${live.hardNote && Date.now() - live.hardNote.at < 90e3 ? ` · ${esc(live.hardNote.text)}` : ""}${live.lastHard ? ` · next hard refresh in ${Math.max(1, Math.ceil((live.lastHard + HARD_MS - Date.now()) / 60e3))} min` : ""}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button><button type="button" class="chip sm" id="edgeHard" title="Download the newest player data and Kalshi markets, re-price everything, and search the whole board again">⟳ Hard refresh</button>
+      <div class="pl-sub edge-live"><span role="status">${liveStatus(DATA)}${liveHidden.size ? ` · ${Math.ceil(liveHidden.size / 2) || 1} game${liveHidden.size > 2 ? "s" : ""} in progress hidden (no in-game bets)` : ""}${live.discoverAt ? ` · new Kalshi props checked ${ago(live.discoverAt)}${live.discoverNote && Date.now() - live.discoverNote.at < 10 * 60e3 ? ` (<b>${live.discoverNote.n} new</b> at ${new Date(live.discoverNote.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })})` : ""}${live.discoverErr ? ` (couldn't check: ${esc(live.discoverErr)})` : ""}` : ""}${live.hardNote && Date.now() - live.hardNote.at < 90e3 ? ` · ${esc(live.hardNote.text)}` : ""}${live.lastHard ? ` · next hard refresh in ${Math.max(1, Math.ceil((live.lastHard + HARD_MS - Date.now()) / 60e3))} min` : ""}${freshN ? ` · <b class="new-n">${freshN} new bet${freshN === 1 ? "" : "s"}</b>` : ""}</span><button type="button" class="chip sm" id="edgeRefresh"${live.busy ? " disabled" : ""}>${live.busy ? "Refreshing…" : "↻ Refresh prices"}</button><button type="button" class="chip sm" id="edgeHard" title="Download the newest player data and Kalshi markets, re-price everything, and search the whole board again">⟳ Hard refresh</button>
         ${window.PropKalshi ? `<label class="check bot-toggle"><input type="checkbox" id="edgeBot"${botState().on ? " checked" : ""}/> Auto bet</label>` : ""}</div>
       ${window.PropKalshi && (botState().on || botState().stopped) ? `<div class="card bot-box${botState().on ? " on" : ""}"><div>${botSummary()}</div>${botState().on ? `<button type="button" class="chip sm" id="botCheck" style="margin-top:6px">Check account &amp; bet now</button>` : ""}${(botState().log || []).length ? `<details><summary class="pl-sub">Bot activity</summary><ul class="bot-log">${botState().log.slice().reverse().slice(0, 12).map(l => `<li><span class="pl-sub">${new Date(l.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span> ${esc(l.text)}</li>`).join("")}</ul></details>` : ""}</div>` : ""}
       <div class="pl-sub edge-note">${all.length} prop${all.length === 1 ? "" : "s"} · NBA Kalshi props: our chance is Kalshi's own price, recalibrated on ${fitN()} settled markets (the price beat our projection there); elsewhere the projection gets ${Math.round((1 - (window.PropModel.cfg(opts.league === "all" ? "nhl" : opts.league).marketWeight || 0.9)) * 100)}% weight against the market. EV is after Kalshi fees. NBA Kalshi picks: confidence is graded on edge size and price (in testing, edges over 25% made money and edges under 10% or NO bets costing over 60¢ lost). Other picks: confidence (High / Medium / Low) drops for injury news, untested teammate boosts, role changes, thin or long-shot markets and big disagreement with the market; hover a badge for why. Above +25% usually means the model is missing something: check before betting. Not betting advice.</div>
