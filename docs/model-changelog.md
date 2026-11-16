@@ -237,3 +237,10 @@ EV ≥ 0%: 795 picks, −2.3% (90% −7.6% … +3.1%); ≥ 1%: 576, −0.7%; ≥
 - EV ≥ 10%: 0 bets. EV ≥ 5%: 0 bets. EV ≥ 2%: 406 bets, +4.5% (all PRA unders; overlaps the fit's own period, and the full-year test of ≥ 2% was −3.0%).
 - Why: the Conservative layer prices off Kalshi's own mid, so its EV is capped by the spread and fee: at a 1¢ spread the best case is ~+3% (PRA NO); anything beyond needs an outside fair price. Big-EV alerts can't come from Kalshi's price alone, at any time resolution.
 - Right after listing, books are often empty (1¢ bid / 94¢ ask) and many markets have no pre-game trades at all.
+
+## 2026-11-16 — In-game NBA props (scripts/minute-study.mjs collect --ingame, scripts/live-study.mjs)
+1-minute quotes from tip to final for 385 prop events (Nov 4–15): 40,306 snapshots at 15/30/45/60/90/120 min after tip, each only if quoted two-sided in the two minutes up to then (a market whose over already hit is closed and can't sneak in). Optimistic: no delay, size assumed.
+- Calibrated at every point of the game (e.g. 60 min: 35–65¢ won 51% vs 50%; 85–97¢ 91% vs 90%).
+- Simple rules after fees all lose in both halves; best: NO on 3–15¢ long shots late in the game −1.1%, NO on 3–15¢ overall −2.2%. YES on long shots −35%.
+- Fitted layer (price + time since tip): no better than the price (forward log loss 0.4886 vs 0.4874). Board rule: no picks leave-one-day-out; forward EV ≥ 2% −1.2% (385); ≥ 5% +11.6% on 90 picks in one half only.
+No in-game edge from Kalshi's prices alone; the bot keeps skipping games in progress.
