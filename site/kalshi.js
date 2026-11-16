@@ -241,6 +241,11 @@
     }
     return out;
   }
+  /** Open events (with their markets) in one series: how the Edge Board spots props Kalshi just listed. */
+  async function openEvents(series) {
+    const j = await call("GET", `/events?series_ticker=${encodeURIComponent(series)}&status=open&with_nested_markets=true&limit=200`, null, false);
+    return j.events || [];
+  }
   /** Where live prices come from: the app's built-in relay, or a relay the user set up. */
   const liveSource = () => desktopRelay() ? "app" : "relay";
   const market = async ticker => (await call("GET", `/markets/${encodeURIComponent(ticker)}`, null, false)).market;
@@ -468,7 +473,7 @@
     return { filled, each, cost, buy };
   }
 
-  const api = { openExposure, markets, liveSource, balanceInfo, transfer, diagnoseInsufficient, withFundsFix, quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
+  const api = { openExposure, openEvents, markets, liveSource, balanceInfo, transfer, diagnoseInsufficient, withFundsFix, quickBet, href, link, importPem, pkcs1ToPkcs8, authHeaders, orderBody, size, takerFee, settings, saveSettings, getCred, saveCred, forget, balance, market, placeOrder, openSettings, openOrder,
     ready: async () => settings().enabled && !!(await getCred()) };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.PropKalshi = api;
 })(typeof window !== "undefined" ? window : globalThis);
