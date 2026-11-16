@@ -231,3 +231,9 @@ No edge. Nothing added.
 ## 2026-11-15 — 2%+ EV picks over a full year (scripts/ev-direct.mjs)
 Kalshi's archive (scripts/kalshi-archive.mjs) added last NBA season: 96,861 settled props with a pre-tip quote, 210 game days, 2025-11-18 … 2026-11-15. Board rule replayed straight from Kalshi's results (no ESPN join), Conservative layer refit each day on earlier days only:
 EV ≥ 0%: 795 picks, −2.3% (90% −7.6% … +3.1%); ≥ 1%: 576, −0.7%; ≥ 2%: 358, −3.0% (−13.7% … +8.6%; 2–5%: 314 picks −4.5%); ≥ 5%: 44, +9.9% (−22% … +39%, too few). Won 46.6% vs 49.7% expected at ≥ 2%. No edge; the minimum EV stays at 25%.
+
+## 2026-11-16 — Minute-by-minute: does "grab big EV the moment it appears" find anything? (scripts/minute-study.mjs)
+1-minute Kalshi quotes from listing to tip for every NBA prop since 2026-11-03 (385 events, 16,079 markets, 1.09M two-sided market-minutes). Rule: buy the first minute the Conservative layer's EV after fees clears the bar (cost 20–80¢, two-sided book only).
+- EV ≥ 10%: 0 bets. EV ≥ 5%: 0 bets. EV ≥ 2%: 406 bets, +4.5% (all PRA unders; overlaps the fit's own period, and the full-year test of ≥ 2% was −3.0%).
+- Why: the Conservative layer prices off Kalshi's own mid, so its EV is capped by the spread and fee: at a 1¢ spread the best case is ~+3% (PRA NO); anything beyond needs an outside fair price. Big-EV alerts can't come from Kalshi's price alone, at any time resolution.
+- Right after listing, books are often empty (1¢ bid / 94¢ ask) and many markets have no pre-game trades at all.
