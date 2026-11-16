@@ -359,6 +359,7 @@ export function parseKalshiMarket(sport, stat, m, quotes, slug) {
     b: "Kalshi", k: "kalshi", l: line, o: toAmerican(ya + kalshiFee(ya)), u: toAmerican(na + kalshiFee(na)),
     t: m.expected_expiration_time || m.close_time, vol: Math.round(parseFloat(m.volume_fp || 0)),
     tk: m.ticker, ya: +ya.toFixed(4), na: +na.toFixed(4),   // market ticker + raw asks, for placing orders
+    op: m.open_time || null,                                 // when Kalshi listed it (Edge Board "Listed" filter)
     href: kalshiHref(m.ticker, m.event_ticker, slug),        // the market's page on kalshi.com (opens the app on phones)
   });
 }

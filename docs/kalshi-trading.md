@@ -75,3 +75,6 @@ Auto bet looks for new picks on the board (your filters) every minute and re-rea
 
 ### Top-ups (2026-11-15)
 A pick that already has money in it stays eligible while it is still on the filtered Edge Board: the bot tops it up to one bet's worth (the "Each bet" %). Money already in a pick = what the bot spent on it, or your Kalshi position in that market (so your own manual bets count), whichever is more. It adds only when at least one more contract fits, and never beyond one bet's worth per pick.
+
+### "Listed" filter (2026-11-16)
+Edge Board → Listed: Any time / Last 1 h / 3 h / 6 h / 12 h shows only props whose Kalshi market first opened in that window (earliest open time across the player's strikes for that stat; `op` on each Kalshi quote, from `open_time`). Sort → "Newest listings first". Rows listed in the last 24 h carry a "listed N min/h ago" tag. Auto bet follows the board's filters, so with a Listed window it only bets newly listed props. NBA/NHL props open the morning of game day (~10–15 h before tip); NFL props ~4–5 days before kickoff.
