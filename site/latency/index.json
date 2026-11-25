@@ -1,5 +1,48 @@
 [
  {
+  "file": "2026-11-25-0106-espn.json",
+  "date": "2026-11-25",
+  "started": "2026-11-25T01:06:10.624Z",
+  "feed": "espn",
+  "leagues": [
+   "nba"
+  ],
+  "games": 3,
+  "gameNames": [
+   "NBA DET @ ORL",
+   "NBA BOS @ WSH",
+   "NBA DAL @ DEN"
+  ],
+  "plays": 1235,
+  "crossings": 555,
+  "measured": 446,
+  "medianFeedDelay": 32.399,
+  "medianFeedDelayNba": 32.399,
+  "medianFeedDelayNfl": null,
+  "medianKalshiDelay": 58.942,
+  "feedFirstShare": 0.7488789237668162,
+  "staleChances": 232,
+  "medianStaleEdge": 0.1,
+  "scoringPlays": 296,
+  "medianGameLineDelay": 20.4475,
+  "propMove": 0.45,
+  "propStart": 27.238500000000002,
+  "propT50": 40.432,
+  "propT90": 48.533,
+  "propSteps": 2,
+  "propTraded": 51,
+  "propLeftAtSeen": 0.991,
+  "gameMoved": 126,
+  "gameMove": 0.03,
+  "gameStart": 15.827,
+  "gameT50": 18.3935,
+  "gameT90": 26.2855,
+  "gameSteps": 1,
+  "gameTraded": 36867,
+  "gameLeftAtSeen": 0,
+  "markets": 2630
+ },
+ {
   "file": "2026-11-24-0303-espn.json",
   "date": "2026-11-24",
   "started": "2026-11-24T03:03:56.208Z",
