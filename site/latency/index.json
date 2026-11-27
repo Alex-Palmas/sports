@@ -1,5 +1,47 @@
 [
  {
+  "file": "2026-11-27-0050-espn.json",
+  "date": "2026-11-27",
+  "started": "2026-11-27T00:50:18.168Z",
+  "feed": "espn",
+  "leagues": [
+   "nfl"
+  ],
+  "games": 2,
+  "gameNames": [
+   "NFL PHI @ DAL",
+   "NFL KC @ BUF"
+  ],
+  "plays": 214,
+  "crossings": 74,
+  "measured": 69,
+  "medianFeedDelay": 42.108000000000004,
+  "medianFeedDelayNba": null,
+  "medianFeedDelayNfl": 42.108000000000004,
+  "medianKalshiDelay": 63.811,
+  "feedFirstShare": 0.782608695652174,
+  "staleChances": 35,
+  "medianStaleEdge": 0.08,
+  "scoringPlays": 0,
+  "medianGameLineDelay": null,
+  "propMove": 0.35,
+  "propStart": 23.685,
+  "propT50": 40.9375,
+  "propT90": 54.518,
+  "propSteps": 1,
+  "propTraded": 271,
+  "propLeftAtSeen": 0.969,
+  "gameMoved": 0,
+  "gameMove": null,
+  "gameStart": null,
+  "gameT50": null,
+  "gameT90": null,
+  "gameSteps": null,
+  "gameTraded": null,
+  "gameLeftAtSeen": null,
+  "markets": 1808
+ },
+ {
   "file": "2026-11-26-0041-espn.json",
   "date": "2026-11-26",
   "started": "2026-11-26T00:41:36.635Z",
